@@ -1,0 +1,9 @@
+# Agda build artifacts
+_build/
+*.agdai
+
+# Haskell / cabal
+dist-newstyle/
+
+# OS
+.DS_Store

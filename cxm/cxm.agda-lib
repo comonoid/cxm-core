@@ -1,0 +1,19 @@
+name: cxm
+include: .
+depend:
+  standard-library
+  agdelte
+  agdelte-store
+  agdelte-auth
+  agdelte-payments
+-- NB: agdelte-cxm is now fully INDEPENDENT of agdelte-crm. The site restarts from scratch (no
+-- data migration, user decision 2026-07-02), so the one-shot FromCrm migration was dropped and
+-- the temporary agdelte-crm dependency removed. agdelte-crm can be retired once its consumers
+-- (agdelte/server, agdelte-pack-psych) are off it.
+-- The domain-neutral CXM core (headless Customer Experience Management) that strictly
+-- subsumes the classic CRM as a degenerate case (see ~/cxm-core/docs/cxm-description.md §0,§5).
+-- Records-only identity modules, schema-driven Wire codecs, a store behind a
+-- repository-seam interface (WAL backend first, Postgres deferred), the Cxm.Txn monad,
+-- domain commands, projections/inference, and the headless Query/Decision/HTTP Api.
+-- Sits on agdelte-store (IndexedMap/WAL/Schema), agdelte (HTTP/JSON FFI),
+-- agdelte-auth (JWT/RBAC) and agdelte-payments (provider clients).
