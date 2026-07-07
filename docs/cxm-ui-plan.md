@@ -39,8 +39,9 @@
         ЗАБЛОКИРОВАНЫ бедным read-слоем сервера. Нужна Ф0.4 ↓ (это правка `cxm-server-pg`, не cxm-ui).
 
 ## Ф0.4. Обогащение read-поверхности сервера (ПРЕРЕКВИЗИТ Ф2; это работа в `cxm-server-pg`)
-- [ ] 0.4.1 `listKnowledge`-энкодер → полный KnowledgeView (id/subject/type/status/confidence/validFrom/
-      validTo/decay/detail/episode) — питает блокнот+бейджи
+- [x] 0.4.1 `listKnowledge`-энкодер → полный KnowledgeView (id/subject/type/source/confidence/validFrom/
+      validTo/decay/status/detail/episode) — питает блокнот+бейджи. Live ✓, `knowledgeDec` совпал (9/9).
+      _(confidence — сырой; decay-on-read Д5 отложен: у клиента есть decay+validFrom → может сам)_
 - [ ] 0.4.2 Добавить `POST /episodes/by-subject` (нужен карточке клиента) + EpisodeView-энкодер
 - [ ] 0.4.3 Добавить `POST /expectations/by-subject` (нужен expectation-gap) + ExpectationView-энкодер
 - [ ] 0.4.4 (опц.) обогатить `/subjects` или добавить `POST /subjects/get` до нужных карточке полей;

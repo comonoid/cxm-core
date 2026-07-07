@@ -53,7 +53,12 @@ open import Cxm.Edge using (SubjectEdge)
 open import Cxm.Entitlement using (Entitlement)
 open import Cxm.Resource using (Resource; rId; rPayload; rAuthor; rCreatedAt; ResourceLink)
 open import Cxm.Social using (feedViews; threadViews; showcaseViews; ContentView; cvLocked; cvResource; ThreadView; tvDepth; tvLocked; tvResource)
-open import Cxm.Knowledge using (Knowledge; kDetail; kTenant; STATE; STATED)
+open import Cxm.Knowledge using
+  ( Knowledge; kDetail; kTenant; kId; kSubject; kType; kSource; kConfidence
+  ; kValidFrom; kValidTo; kDecay; kStatus; kEpisode
+  ; EpistemicType; FACT; HYPOTHESIS; STATE; TRAIT
+  ; Source; OBSERVED; INFERRED; STATED; IMPORTED
+  ; KStatus; ACTIVE; CONFIRMED; REFUTED; SUPERSEDED )
 open import Cxm.Users using (User; uTenant; uPassHash; RoleAssignment; raSubject; raRoleId)
 open import Cxm.Bus using (OutboxEntry; obTo; obSubject; obBody; obChannel; obAttempts; obTenant; obStatus; OutStatus; OutPending; OutSent; OutFailed)
 open import Cxm.Store.Base using
@@ -167,6 +172,17 @@ private
       enc : Subject → String
       enc s = "{\"id\":" <> show (sId s) <> ",\"name\":" <> str (sDisplayName s) <> "}"
 
+  -- enum → wire code (matches CxmUI.Contract knowledgeDec)
+  epTypeStr : EpistemicType → String
+  epTypeStr FACT = "fact" ; epTypeStr HYPOTHESIS = "hypothesis"
+  epTypeStr STATE = "state" ; epTypeStr TRAIT = "trait"
+  srcStr : Source → String
+  srcStr OBSERVED = "observed" ; srcStr INFERRED = "inferred"
+  srcStr STATED = "stated" ; srcStr IMPORTED = "imported"
+  kStatStr : KStatus → String
+  kStatStr ACTIVE = "active" ; kStatStr CONFIRMED = "confirmed"
+  kStatStr REFUTED = "refuted" ; kStatStr SUPERSEDED = "superseded"
+
   listKnowledge : (ct sid : ℕ) → Tx String
   listKnowledge ct sid =
     byIx tcKnowledge knowBySubject sid >>=T λ ids →
@@ -175,8 +191,20 @@ private
     where
       mine : List Knowledge → List Knowledge
       mine = foldr (λ k acc → if kTenant k ≡ᵇ ct then k ∷ acc else acc) []
+      -- full KnowledgeView (Ф0.4.1): id/subject/type/source/confidence/validFrom/validTo/decay/
+      -- status/detail/episode — питает блокнот знаний + эпист-бейджи. validTo/episode: 0 = none.
       enc : Knowledge → String
-      enc k = "{\"detail\":" <> str (kDetail k) <> "}"
+      enc k = "{\"id\":" <> show (kId k)
+              <> ",\"subject\":" <> show (kSubject k)
+              <> ",\"type\":" <> str (epTypeStr (kType k))
+              <> ",\"source\":" <> str (srcStr (kSource k))
+              <> ",\"confidence\":" <> show (kConfidence k)
+              <> ",\"validFrom\":" <> show (kValidFrom k)
+              <> ",\"validTo\":" <> show (maybe′ (λ x → x) 0 (kValidTo k))
+              <> ",\"decay\":" <> show (kDecay k)
+              <> ",\"status\":" <> str (kStatStr (kStatus k))
+              <> ",\"detail\":" <> str (kDetail k)
+              <> ",\"episode\":" <> show (maybe′ (λ x → x) 0 (kEpisode k)) <> "}"
 
   -- /notifications guard: the recipient must be YOUR tenant's VERIFIED binding (P1b)
   ownedTo : (ct : ℕ) (addr : String) → Tx Bool
