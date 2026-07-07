@@ -74,7 +74,15 @@
 - [x] 2.4 Блокнот: кнопка «перестроить вывод» — `Rebuild` (читает `selected` в cmd) → `Client.rebuildInference`
       (`POST /knowledge/rebuild-inference`, обрабатывает `{"ok":true}` через `envelopeUnit`) → перезагрузка знаний.
       Client+ClientCard компилятся; `envelopeUnit` тест 2/2 (ok+error). Роут на сервере уже был.
-- [ ] 2.5 **Панель VIII.a** — декодер `kDetail` рабочих стратегий (work_strategy trait) → читаемая панель
+- [x] 2.5 **Панель VIII.a** — Contract: `WorkStrategyView` + `workStrategyDec` (kind-гейт
+      `"work_strategy"`, все параметры `optionalField` — пустая стратегия валидна) +
+      `parseWorkStrategy : String → Maybe` (чистый вход панели/тестов). Виджет: секция
+      «Как достучаться» (`cxm-ws-panel`), `parseWorkStrategy (kvDetail k)` по знаниям выбранного
+      субъекта → фраза «синхронно · сначала детали · хэндофф полон: …»; refuted/superseded скрыты
+      (история — в блокноте), панель через `when` показывается лишь когда есть что (прогрессивное
+      раскрытие §VIII.a). Тесты +5 (contract 14/14): full/bare/чужой kind/не-JSON/end-to-end
+      через knowledgeDec. NB: у kDetail НЕТ серверного энкодера (opaque, operator-authored) —
+      конвенция типизируется именно здесь, синтетические строки в тесте легитимны.
 - [x] 2.6 **Expectation-gap** — секция «Ожидания» в карточке: `expectationsOf` в batch-загрузке, `xpRow`
       с gap-сигналом (met/unmet/unknown, класс `cxm-exp-<status>`) + topic + уровень. Компилится.
 

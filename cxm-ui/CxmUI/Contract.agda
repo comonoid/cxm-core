@@ -15,12 +15,16 @@
 -- args into their FFI target and crash regardless).
 module CxmUI.Contract where
 
+open import Agda.Builtin.String using (primStringEquality)
 open import Data.Nat using (ℕ)
 open import Data.String using (String)
-open import Data.Bool using (Bool)
+open import Data.Bool using (Bool; if_then_else_)
 open import Data.List using (List)
+open import Data.Maybe using (Maybe; just; nothing)
 
-open import Agdelte.Json using (Decoder; string; nat; bool; field′; list; andThen; succeed)
+open import Agdelte.Core.Result using (Result; ok; err)
+open import Agdelte.Json using (Decoder; string; nat; bool; field′; optionalField; list;
+                                andThen; succeed; fail; decodeString)
 
 private
   -- monadic bind for decoders (NOT point-free, so the compiled wrapper maps arg positions and
@@ -276,3 +280,37 @@ appointmentDec =
 
 appointmentListDec : Decoder (List AppointmentView)
 appointmentListDec = list appointmentDec
+
+------------------------------------------------------------------------
+-- Work strategy (panel VIII.a, Ф2.5) — the CONVENTION decoder for `kvDetail` of a work-strategy
+-- TRAIT (Cxm.Knowledge header, upgrade-план C2): kDetail = {"kind":"work_strategy","sync":…,
+-- "detail_first":…,"handoff_complete_when":…}. The core keeps kDetail opaque (§8.1) and there is
+-- no server encoder — the string is operator-authored and stored verbatim — so THIS decoder is
+-- where the convention becomes typed. All parameters are optional (a bare
+-- {"kind":"work_strategy"} is a valid, empty strategy); an alien `kind` (e.g. a convincer) or
+-- non-JSON detail must NOT parse — the kind gate is the discriminator.
+------------------------------------------------------------------------
+
+record WorkStrategyView : Set where
+  constructor mkWorkStrategyView
+  field
+    wsSync        : Maybe Bool     -- just true = синхронно, just false = асинхронно
+    wsDetailFirst : Maybe Bool     -- just true = сначала детали, just false = сначала картина
+    wsHandoff     : Maybe String   -- handoff_complete_when: что делает хэндофф «полным»
+open WorkStrategyView public
+
+workStrategyDec : Decoder WorkStrategyView
+workStrategyDec =
+  field′ "kind" string >>= λ kind →
+  if primStringEquality kind "work_strategy"
+    then ( optionalField "sync" bool                    >>= λ sy →
+           optionalField "detail_first" bool            >>= λ df →
+           optionalField "handoff_complete_when" string >>= λ ho →
+           succeed (mkWorkStrategyView sy df ho) )
+    else fail "kDetail kind is not work_strategy"
+
+-- The pure entry the panel (and tests) use: opaque kDetail string → Maybe strategy.
+parseWorkStrategy : String → Maybe WorkStrategyView
+parseWorkStrategy s with decodeString workStrategyDec s
+... | ok w  = just w
+... | err _ = nothing

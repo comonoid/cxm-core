@@ -76,5 +76,48 @@ test('knowledgeListDec (array of rows → native JS array)', () => {
   eq(xs.length, 2); eq(N(K.kvId(xs[0])), 3); eq(N(K.kvId(xs[1])), 4); eq(K.kvType(xs[1]), 'hypothesis');
 });
 
+// ── Work strategy (panel VIII.a, Ф2.5): parseWorkStrategy over opaque kDetail ────────────────
+// kDetail is operator-authored and stored verbatim (no server encoder), so the convention
+// {"kind":"work_strategy",…} is tested here at its typed edge. Maybe is Scott-encoded.
+const W = Contract.WorkStrategyView;
+const mb = (m) => m({ just: (v) => ({ has: true, value: v }), nothing: () => ({ has: false }) });
+const parseWS = (s) => mb(Contract.parseWorkStrategy(s));
+
+test('parseWorkStrategy (full convention form)', () => {
+  const r = parseWS('{"kind":"work_strategy","sync":true,"detail_first":false,"handoff_complete_when":"тикет закрыт и есть резюме"}');
+  if (!r.has) throw new Error('expected just');
+  const w = r.value;
+  const sy = mb(W.wsSync(w)), df = mb(W.wsDetailFirst(w)), ho = mb(W.wsHandoff(w));
+  eq(sy.has, true); eq(sy.value, true);
+  eq(df.has, true); eq(df.value, false);
+  eq(ho.has, true); eq(ho.value, 'тикет закрыт и есть резюме');
+});
+
+test('parseWorkStrategy (bare {"kind":"work_strategy"} — the real fixture detail)', () => {
+  // exact detail shape of the live row in test/fixtures/reads.json
+  const r = parseWS('{"kind":"work_strategy"}');
+  if (!r.has) throw new Error('expected just');
+  const w = r.value;
+  eq(mb(W.wsSync(w)).has, false); eq(mb(W.wsDetailFirst(w)).has, false); eq(mb(W.wsHandoff(w)).has, false);
+});
+
+test('parseWorkStrategy (alien kind → nothing)', () => {
+  eq(parseWS('{"kind":"convincer","sync":true}').has, false);
+});
+
+test('parseWorkStrategy (non-JSON / plain-text detail → nothing)', () => {
+  eq(parseWS('convincer:hear/n-times/3').has, false);
+  eq(parseWS('').has, false);
+});
+
+test('parseWorkStrategy (kDetail of a decoded knowledge row, end-to-end)', () => {
+  const v = decOk(Contract.knowledgeDec,
+    '{"id":5,"subject":4,"type":"trait","source":"stated","confidence":500,"validFrom":1783429954,"validTo":0,"decay":0,"status":"active","detail":"{\\"kind\\":\\"work_strategy\\",\\"sync\\":false}","episode":0}');
+  const r = parseWS(K.kvDetail(v));
+  if (!r.has) throw new Error('expected just');
+  const sy = mb(W.wsSync(r.value));
+  eq(sy.has, true); eq(sy.value, false);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
