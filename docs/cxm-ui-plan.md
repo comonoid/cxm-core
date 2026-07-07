@@ -60,9 +60,12 @@
       Добавлены view-типы в Contract: `RosterView` (тонкий /subjects), `AppointmentView`.
 
 ## Ф2. Кабинетные виджеты (операторская консоль)
-- [ ] 2.1 **Карточка клиента** — субъект + эпизоды + брони + знания (композит)
-- [ ] 2.2 **Умный блокнот знаний** — эпист-бейджи (FACT/HYPOTHESIS/STATE/TRAIT + статус/уверенность/decay)
-- [ ] 2.3 Блокнот: действия ревизии (strengthen/weaken/confirm/refute/supersede/redetail)
+- [x] 2.1 **Карточка клиента** — `CxmUI/ClientCard.agda`: реактивный Model/update/cmd/view/app
+      (`clientCardApp cfg`). Ростер → выбор субъекта → `batch` загрузки knowledge/episodes/appointments.
+      Тайпчек ✓, `agda --js` → `.mjs` ✓ (визуал — вручную в Ф4-харнессе). Ф2.1+2.2-дисплей одним виджетом.
+- [x] 2.2 **Эпист-бейджи** (дисплей) — знания рендерятся с бейджами type (fact/hypothesis/state/trait) +
+      status + ‰confidence + opaque detail (CSS-классы `cxm-badge-<type>`/`cxm-status-<status>` для сайта).
+- [ ] 2.3 Блокнот: действия ревизии (strengthen/weaken/confirm/refute/supersede/redetail) — нужны write-вызовы клиента
 - [ ] 2.4 Блокнот: кнопка «перестроить вывод» (`POST /knowledge/rebuild-inference`)
 - [ ] 2.5 **Панель VIII.a** — декодер `kDetail` рабочих стратегий (work_strategy trait) → читаемая панель
 - [ ] 2.6 **Expectation-gap** — ожидания vs факт, статусы
