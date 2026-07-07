@@ -81,6 +81,20 @@ await until(() => [...stage.querySelectorAll('.cxm-know')]
   'strengthen отразился в DOM');
 ok(true, 'ревизия strengthen(+50) кликом: ‰500 → ‰550 в DOM (без стейл-ряда)');
 
+// Ф2.3-хвост: redetail-форма — кавычки в тексте проверяют escJson
+const plainRow = [...stage.querySelectorAll('.cxm-know')]
+  .find((r) => r.textContent.includes('обычное наблюдение'));
+plainRow.querySelector('.cxm-rev-redetail').click();
+const editInp = await until(() => stage.querySelector('.cxm-edit-input'), 'redetail-форма открылась');
+ok(editInp.value === 'обычное наблюдение (не стратегия)', 'redetail: форма преднаполнена текущим kDetail');
+editInp.value = 'уточнение: "точка опоры" найдена';
+editInp.dispatchEvent(new window.Event('input', { bubbles: true }));
+stage.querySelector('.cxm-edit-save').click();
+await until(() => [...stage.querySelectorAll('.cxm-know')]
+  .some((r) => r.textContent.includes('уточнение: "точка опоры" найдена')), 'redetail отразился в DOM');
+ok(!stage.querySelector('.cxm-edit-input'), 'redetail: форма закрылась после сохранения');
+ok(true, 'redetail: текст с кавычками сохранён (escJson) и виден в ряду');
+
 const panel = await until(() => stage.querySelector('.cxm-ws-panel'), 'панель VIII.a появилась');
 const rows = panel.querySelectorAll('.cxm-ws');
 ok(rows.length === 1, `панель VIII.a: ровно 1 стратегия (обычное знание отфильтровано), есть ${rows.length}`);

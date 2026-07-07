@@ -10,7 +10,7 @@ module CxmUI.ClientCard where
 open import Agda.Builtin.Unit using (⊤)
 open import Agda.Builtin.String using (primStringEquality)
 open import Data.Bool using (Bool; true; false; not; _∨_; if_then_else_)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _≡ᵇ_)
 open import Data.Nat.Show using (show)
 open import Data.String using (String; _++_; intersperse)
 open import Data.List using (List; []; _∷_; [_]; mapMaybe; null)
@@ -41,10 +41,12 @@ record Model : Set where
     appointments : List AppointmentView
     expectations : List ExpectationView
     status       : String               -- transient status / error line
+    editing      : ℕ                    -- knowledge id под redetail-формой (0 = закрыта)
+    editText     : String               -- текст формы
 open Model public
 
 initModel : Cfg → Model
-initModel c = mkModel c [] 0 [] [] [] [] "нажми «Загрузить» — список клиентов"
+initModel c = mkModel c [] 0 [] [] [] [] "нажми «Загрузить» — список клиентов" 0 ""
 
 ------------------------------------------------------------------------
 -- Messages
@@ -62,6 +64,10 @@ data Msg : Set where
   GotRebuild     : Result CallErr ⊤ → Msg
   Revise         : ℕ → String → Msg                       -- (knowledge id, kind) — Ф2.3
   ReviseBy       : ℕ → String → ℕ → Msg                   -- + amount (strengthen/weaken, шаг UI)
+  EditDetail     : ℕ → String → Msg                       -- открыть redetail-форму (kid, текущий kDetail)
+  EditInput      : String → Msg
+  SaveDetail     : Msg
+  CancelEdit     : Msg
   GotRevise      : Result CallErr ⊤ → Msg
 
 ------------------------------------------------------------------------
@@ -88,7 +94,11 @@ updateModel (GotRebuild (ok _)) m = record m { status = "вывод перест
 updateModel (GotRebuild (err e)) m = record m { status = errText e }
 updateModel (Revise _ kind) m = record m { status = ("ревизия: " ++ kind ++ "…") }
 updateModel (ReviseBy _ kind _) m = record m { status = ("ревизия: " ++ kind ++ "…") }
-updateModel (GotRevise (ok _)) m = record m { status = "ревизия применена, обновляю…" }
+updateModel (EditDetail kid cur) m = record m { editing = kid ; editText = cur }
+updateModel (EditInput s) m = record m { editText = s }
+updateModel SaveDetail m = record m { status = "сохраняю детали…" }
+updateModel CancelEdit m = record m { editing = 0 ; editText = "" }
+updateModel (GotRevise (ok _)) m = record m { status = "ревизия применена, обновляю…" ; editing = 0 }
 updateModel (GotRevise (err e)) m = record m { status = errText e }
 
 cmdOf : Msg → Model → Cmd Msg
@@ -101,6 +111,7 @@ cmdOf Rebuild            m = rebuildInference (cfg m) (selected m) GotRebuild
 cmdOf (GotRebuild (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge   -- reload after rebuild
 cmdOf (Revise kid kind)  m = reviseKnowledge (cfg m) kid kind GotRevise
 cmdOf (ReviseBy kid kind amt) m = reviseKnowledgeBy (cfg m) kid kind amt GotRevise
+cmdOf SaveDetail         m = reviseDetail (cfg m) (editing m) (editText m) GotRevise
 cmdOf (GotRevise (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge    -- reload after revision
 cmdOf _                  _ = ε
 
@@ -134,7 +145,17 @@ private
         ∷ button (onClick (ReviseBy (kvId k) "strengthen" 50) ∷ class "cxm-rev cxm-rev-strengthen" ∷ [])
             [ text "▲ +50" ]
         ∷ button (onClick (ReviseBy (kvId k) "weaken" 50) ∷ class "cxm-rev cxm-rev-weaken" ∷ [])
-            [ text "▼ −50" ] ∷ [] )
+            [ text "▼ −50" ]
+        ∷ button (onClick (EditDetail (kvId k) (kvDetail k)) ∷ class "cxm-rev cxm-rev-redetail" ∷ [])
+            [ text "✎ детали" ] ∷ [] )
+    ∷ [] )
+
+  -- Ф2.3-хвост: redetail-форма (одна на карточку; editing = kid). Текст уходит JSON-экранированным.
+  editPanel : Node Model Msg
+  editPanel = div (class "cxm-edit-detail" ∷ [])
+    ( input (valueBind editText ∷ onInput EditInput ∷ class "cxm-edit-input" ∷ [])
+    ∷ button (onClick SaveDetail ∷ class "cxm-edit-save" ∷ []) [ text "Сохранить детали" ]
+    ∷ button (onClick CancelEdit ∷ class "cxm-edit-cancel" ∷ []) [ text "Отмена" ]
     ∷ [] )
 
   epRow : EpisodeView → ℕ → Node Model Msg
@@ -206,7 +227,8 @@ cardTemplate =
                 ( div (class "cxm-section-head" ∷ [])
                     ( h2 [] [ text "Знания" ]
                     ∷ button (onClick Rebuild ∷ class "cxm-rebuild" ∷ []) [ text "↻ перестроить вывод" ] ∷ [] )
-                ∷ ul [] ( foreachKeyed knowledge (λ k → show (kvId k)) knowRow ∷ [] ) ∷ [] )
+                ∷ ul [] ( foreachKeyed knowledge (λ k → show (kvId k)) knowRow ∷ [] )
+                ∷ when (λ m → not (editing m ≡ᵇ 0)) editPanel ∷ [] )
             ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Эпизоды" ]
                 ∷ ul [] ( foreachKeyed episodes (λ e → show (epvId e)) epRow ∷ [] ) ∷ [] )
             ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Брони" ]

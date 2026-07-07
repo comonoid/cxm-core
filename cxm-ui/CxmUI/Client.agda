@@ -9,10 +9,11 @@ module CxmUI.Client where
 
 open import Agda.Builtin.String using (primStringEquality)
 open import Agda.Builtin.Unit using (⊤; tt)
+open import Data.Char using (Char)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Show using (show)
-open import Data.String using (String; _++_)
-open import Data.List using (List; []; _∷_)
+open import Data.String using (String; _++_; toList; fromList)
+open import Data.List using (List; []; _∷_; concatMap)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (if_then_else_)
 
@@ -64,6 +65,17 @@ envelope dec resp with decodeString (field′ "data" dec) resp
 -- Request plumbing
 ------------------------------------------------------------------------
 
+-- minimal JSON string escaper for hand-built request bodies (quote/backslash/newline —
+-- enough for operator-typed text; full control-char coverage can come with a Json encoder)
+escJson : String → String
+escJson s = fromList (concatMap escChar (toList s))
+  where
+    escChar : Char → List Char
+    escChar '"'  = '\\' ∷ '"' ∷ []
+    escChar '\\' = '\\' ∷ '\\' ∷ []
+    escChar '\n' = '\\' ∷ 'n' ∷ []
+    escChar c    = c ∷ []
+
 private
   authHdr : String → List (String × String)
   authHdr j = if primStringEquality j "" then [] else ("Authorization" , "Bearer " ++ j) ∷ []
@@ -86,12 +98,10 @@ private
 -- caught by the Ф4.1 live smoke, the original Ф1.1 decoder expected a bare {"token":…})
 ------------------------------------------------------------------------
 
--- ⚠ body is not JSON-escaped yet (Ф1): fine for typical login/password; add an escaper if values
--- may contain `"` or `\`.
 login : ∀ {M : Set} → Cfg → (login password : String) → (Result CallErr String → M) → Cmd M
 login cfg lg pw k =
   httpPostH (base cfg ++ "/auth/login") []
-            ("{\"login\":\"" ++ lg ++ "\",\"password\":\"" ++ pw ++ "\"}")
+            ("{\"login\":\"" ++ escJson lg ++ "\",\"password\":\"" ++ escJson pw ++ "\"}")
             (λ r → k (envelope (field′ "token" string) r)) (λ r → k (err (httpErr r)))
 
 ------------------------------------------------------------------------
@@ -188,3 +198,9 @@ reviseKnowledgeBy : ∀ {M : Set} → Cfg → (knowledge : ℕ) (kind : String) 
 reviseKnowledgeBy cfg kid kind amt =
   postUnit cfg "/knowledge/revise"
     ("{\"knowledge\":" ++ show kid ++ ",\"kind\":\"" ++ kind ++ "\",\"amount\":" ++ show amt ++ "}")
+
+-- Ф2.3-хвост: redetail — rewrite the opaque kDetail with operator-typed text (JSON-escaped).
+reviseDetail : ∀ {M : Set} → Cfg → (knowledge : ℕ) (detail : String) → (Result CallErr ⊤ → M) → Cmd M
+reviseDetail cfg kid d =
+  postUnit cfg "/knowledge/revise"
+    ("{\"knowledge\":" ++ show kid ++ ",\"kind\":\"redetail\",\"detail\":\"" ++ escJson d ++ "\"}")
