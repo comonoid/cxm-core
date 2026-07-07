@@ -7,10 +7,12 @@
     "build:contract": "agda --js --js-es6 --js-optimize --compile-dir=_build CxmUI/Contract.agda",
     "build:client": "agda --js --js-es6 --js-optimize --compile-dir=_build CxmUI/Client.agda",
     "build:card": "agda --js --js-es6 --js-optimize --compile-dir=_build CxmUI/ClientCard.agda",
+    "build:feed": "agda --js --js-es6 --js-optimize --compile-dir=_build CxmUI/Feed.agda",
+    "build:widgets": "npm run build:card && npm run build:feed",
     "test:contract": "node test/contract.test.mjs",
     "test:client": "node test/client.test.mjs",
     "test": "npm run build:client && npm run test:contract && npm run test:client",
-    "dev": "npm run build:card && node dev/serve.mjs",
-    "test:smoke": "npm run build:card && node dev/smoke.mjs"
+    "dev": "npm run build:widgets && node dev/serve.mjs",
+    "test:smoke": "npm run build:widgets && node dev/smoke.mjs"
   }
 }

@@ -77,5 +77,29 @@ ok(phrase === 'асинхронно · сначала детали · хэндо
    `панель VIII.a: фраза читаемая («${phrase}»)`);
 ok(panel.textContent.includes('Как достучаться'), 'панель VIII.a: заголовок «Как достучаться»');
 
+// ── Ф3.1: лента (/v1, свой auth: integration token + identity) ──────────────
+const Feed = (await import('../_build/jAgda.CxmUI.Feed.mjs')).default;
+const itok = (await post('/integration-tokens', { origin: 'smoke' }, token)).data.token;
+// сид соц-графа: автор публикует открытое + locked-тизер, зритель фолловит
+const idOf = (ch, id) => ({ identity_channel: ch, identity_id: id });
+const v1 = async (path, body) => (await fetch(API + path, { method: 'POST',
+  body: JSON.stringify(body), headers: { 'x-integration-token': itok } })).json();
+await v1('/v1/publish', { ...idOf('user_id', 'smoke-author'), payload: '{"text":"пост для смоука"}' });
+await v1('/v1/publish', { ...idOf('user_id', 'smoke-author'), visibility: 'private', listing: 'public',
+  payload: '{"text":"секрет"}' });
+await v1('/v1/follow', { ...idOf('user_id', 'smoke-viewer'), target_channel: 'user_id', target_id: 'smoke-author' });
+
+const feedStage = document.createElement('div');
+document.body.appendChild(feedStage);
+const v1cfg = Client.mkV1Cfg(API)(itok)('user_id')('smoke-viewer');
+await runReactiveApp({ app: Feed.feedApp(v1cfg) }, feedStage);
+feedStage.querySelector('.cxm-load').click();
+await until(() => feedStage.querySelectorAll('.cxm-post').length >= 2, 'лента загрузилась');
+const posts = [...feedStage.querySelectorAll('.cxm-post')];
+ok(posts.some((p) => p.textContent.includes('пост для смоука')), 'лента: открытый пост с payload');
+const locked = feedStage.querySelector('.cxm-post-locked');
+ok(locked && locked.textContent.includes('🔒') && !locked.textContent.includes('секрет'),
+   'лента: locked-пост — тизер-хром, payload зачищен');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -94,7 +94,11 @@
       с gap-сигналом (met/unmet/unknown, класс `cxm-exp-<status>`) + topic + уровень. Компилится.
 
 ## Ф3. Сообщество / соц-виджеты (community)
-- [ ] 3.1 **Лента** (feed) — контент авторов, за кем следит зритель; newest-first
+- [x] 3.1 **Лента** — `CxmUI/Feed.agda`: `feedApp v1cfg` (Model/update/cmd/view), пост = автор +
+      t + payload verbatim (opaque JSON — парсит/стилизует сайт); locked → `cxm-post-locked` +
+      тизер-хром «🔒», payload у сервера уже зачищен. Live-смоук 9/9 (сид publish×2+follow через
+      /v1, зритель видит открытый пост и тизер БЕЗ секрета). Харнесс: запись «Лента» (сам минтит
+      integration-token после логина), дев-стили cxm-post*.
 - [ ] 3.2 **Тред/разговор** — список чанков; teaser-стрип у locked
 - [ ] 3.3 **Витрина** (showcase) — ранги + validTo-окно
 - [ ] 3.4 **Paywall/покупка** — entitlement-gated контент + кнопка покупки

@@ -3,12 +3,21 @@
 // (same-origin; dev/serve.mjs проксирует API-пути на живой cxm-server-pg).
 import { runReactiveApp } from '/runtime/reactive.js';
 
-// Каталог: одна запись на виджет; `app` строит ReactiveApp из модуля и Cfg.
+// Каталог: одна запись на виджет; `app(mod, ctx)` строит ReactiveApp (может быть async —
+// напр. минтит integration-token для /v1). ctx = { jwt, client } (client = jAgda-модуль Client).
 // Новый виджет = новая строка здесь (+ его agda --js компилят в _build).
 const WIDGETS = [
   { id: 'client-card', title: 'Карточка клиента (Ф2.1–2.6)',
     module: '/_build/jAgda.CxmUI.ClientCard.mjs',
-    app: (mod, cfg) => mod.clientCardApp(cfg) },
+    app: (mod, ctx) => mod.clientCardApp(ctx.client.mkCfg('')(ctx.jwt)) },
+  { id: 'feed', title: 'Лента (Ф3.1)',
+    module: '/_build/jAgda.CxmUI.Feed.mjs',
+    app: async (mod, ctx) => {
+      const r = await fetch('/integration-tokens', { method: 'POST',
+        headers: { Authorization: 'Bearer ' + ctx.jwt }, body: JSON.stringify({ origin: 'harness' }) });
+      const itok = (await r.json()).data.token;
+      return mod.feedApp(ctx.client.mkV1Cfg('')(itok)('user_id')('dev-viewer'));
+    } },
 ];
 
 let jwt = sessionStorage.getItem('cxm-jwt') || '';
@@ -28,8 +37,9 @@ async function mount(w) {
   if (!jwt) { stage.innerHTML = '<p class="hint">сначала войди — виджетам нужен Bearer</p>'; return; }
   const [mod, client] = await Promise.all([
     import(w.module), import('/_build/jAgda.CxmUI.Client.mjs')]);
-  const cfg = client.default.mkCfg('')(jwt);   // base="" = same-origin (прокси serve.mjs)
-  handle = await runReactiveApp({ app: w.app(mod.default, cfg) }, stage);
+  // base="" = same-origin (прокси serve.mjs)
+  const app = await w.app(mod.default, { jwt, client: client.default });
+  handle = await runReactiveApp({ app }, stage);
 }
 
 $('login-form').addEventListener('submit', async (e) => {
