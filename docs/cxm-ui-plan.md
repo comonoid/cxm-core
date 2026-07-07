@@ -53,8 +53,15 @@
       `authHdr` (Bearer) + `postJson`/`getJson`; `login`→JWT. `envelope` публична (node-тестируема).
 - [x] 1.2 Кабинетные reads: `roster` + `knowledgeOf`/`episodesOf`/`expectationsOf`/`appointmentsOf`
       — каждый `Cfg → ℕ → (Result CallErr <View> → M) → Cmd M`. (writes — добавлю по мере виджетов Ф2.)
-- [ ] 1.3 `/v1` reads (feed/thread/showcase) — **ждёт Social-view-типы в Contract** (ContentView/
-      ThreadView/ShowcaseView; см. Ф0.3). Делаю в начале Ф3 (community).
+- [x] 1.3 `/v1` reads — Contract: `ContentView` (id/author/createdAt/locked/payload; showcase =
+      той же формы) + `ThreadNodeView` (depth+content), декодеры. Client: `V1Cfg` (base +
+      x-integration-token + identity_channel/id — у /v1 СВОЙ auth, не Bearer) + `feed`/`thread`/
+      `showcase`. Фикстуры сняты с живого /v1 (publish×2+follow+comment): открытый пост, locked-
+      тизер (payload зачищен), тред depth 0/1 с эмодзи. Тесты client 12/12. ★ Сервер-обогащение
+      (аналог Ф0.4): cvEnc/tvEnc были {id,locked,payload} — добавлены author+createdAt (фид без
+      автора/времени не рендерится); пересобран, live ✓. ★ Находка: `linkResourceV` есть в
+      CommandsV, но HTTP-роута нет ⇒ витрину нельзя наполнить по HTTP — пререквизит Ф3.3.
+      ★ Тред-нюанс: /v1/comment попадает в тред только с явным `parent` (anchor ≠ parent).
 - [x] 1.4 Golden-тест клиента (`test/client.test.mjs`, **6/6**): `envelope`+декодеры против
       ENVELOPED-фикстур (`{"data":…}`) + error-путь (`{"error":…}`→serverErr). `npm test`: 9/9 + 6/6.
       Добавлены view-типы в Contract: `RosterView` (тонкий /subjects), `AppointmentView`.

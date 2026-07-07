@@ -114,6 +114,37 @@ appointmentsOf : ∀ {M : Set} → Cfg → ℕ → (Result CallErr (List Appoint
 appointmentsOf cfg sid = postJson cfg "/appointments/by-subject" (bySubjectBody sid) appointmentListDec
 
 ------------------------------------------------------------------------
+-- /v1 social reads (Ф1.3). The /v1 surface has its OWN auth: an `x-integration-token` header
+-- (site-scoped, resolves to the owner's tenant) + viewer identity in the body
+-- (identity_channel/identity_id — e.g. cookie/session or user_id). No Bearer here.
+------------------------------------------------------------------------
+
+record V1Cfg : Set where
+  constructor mkV1Cfg
+  field v1base v1token v1channel v1id : String   -- base origin, integration token, viewer identity
+open V1Cfg public
+
+private
+  postV1 : ∀ {A M : Set} → V1Cfg → String → String → Decoder A → (Result CallErr A → M) → Cmd M
+  postV1 c path extra dec k =
+    httpPostH (v1base c ++ path) (("x-integration-token" , v1token c) ∷ [])
+              ("{\"identity_channel\":\"" ++ v1channel c ++ "\",\"identity_id\":\"" ++ v1id c
+                ++ "\"" ++ extra ++ "}")
+              (λ r → k (envelope dec r)) (λ r → k (err (httpErr r)))
+
+-- Ф3.1: content of followed authors, newest-first; locked rows are stripped teasers.
+feed : ∀ {M : Set} → V1Cfg → (Result CallErr (List ContentView) → M) → Cmd M
+feed c = postV1 c "/v1/feed" "" contentListDec
+
+-- Ф3.2: pre-ordered conversation under a root (depth 0 = root, children createdAt-asc).
+thread : ∀ {M : Set} → V1Cfg → (root : ℕ) → (Result CallErr (List ThreadNodeView) → M) → Cmd M
+thread c root = postV1 c "/v1/thread" (",\"root\":" ++ show root) threadListDec
+
+-- Ф3.3: curated showcase window at `from` (feed-shaped rows, rank-ordered server-side).
+showcase : ∀ {M : Set} → V1Cfg → (from : ℕ) → (Result CallErr (List ContentView) → M) → Cmd M
+showcase c from = postV1 c "/v1/showcase" (",\"from\":" ++ show from) contentListDec
+
+------------------------------------------------------------------------
 -- Cabinet writes (return {"ok":true} on success, NOT a data envelope)
 ------------------------------------------------------------------------
 

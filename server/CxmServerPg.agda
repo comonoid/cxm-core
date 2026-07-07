@@ -323,8 +323,12 @@ private
   vals : (t : TableCode) → Tx (List (Val t))
   vals t = scan t >>=T λ xs → returnT (map proj₂ xs)
 
+  -- cxm-ui Ф1.3: feed/showcase rows carry author (0 = none) + createdAt — a feed item without
+  -- author/time is unrenderable. Payload stays stripped when locked (teaser = chrome only).
   cvEnc : ContentView → String
   cvEnc cv = "{\"id\":" <> show (rId (cvResource cv))
+             <> ",\"author\":" <> show (maybe′ (λ a → a) 0 (rAuthor (cvResource cv)))
+             <> ",\"createdAt\":" <> show (rCreatedAt (cvResource cv))
              <> ",\"locked\":" <> (if cvLocked cv then "true" else "false")
              <> ",\"payload\":" <> str (if cvLocked cv then "" else rPayload (cvResource cv)) <> "}"
 
@@ -344,6 +348,8 @@ private
 
   tvEnc : ThreadView → String
   tvEnc tv = "{\"depth\":" <> show (tvDepth tv) <> ",\"id\":" <> show (rId (tvResource tv))
+             <> ",\"author\":" <> show (maybe′ (λ a → a) 0 (rAuthor (tvResource tv)))
+             <> ",\"createdAt\":" <> show (rCreatedAt (tvResource tv))
              <> ",\"locked\":" <> (if tvLocked tv then "true" else "false")
              <> ",\"payload\":" <> str (if tvLocked tv then "" else rPayload (tvResource tv)) <> "}"
 

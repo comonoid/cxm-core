@@ -64,6 +64,30 @@ test('envelopeUnit error ({"error":…} → serverErr)', () => {
   eq(r.error({ httpErr: () => 'http', serverErr: () => 'server', decodeErr: () => 'decode' }), 'server');
 });
 
+// ── /v1 social reads (Ф1.3) — fixtures captured off the live /v1 gate ────────
+const CN = Contract.ContentView, TN = Contract.ThreadNodeView;
+const B = (b) => b; // Bool → native JS bool under --js
+
+test('envelope + contentListDec (/v1/feed: open post + locked teaser)', () => {
+  const xs = envOk(Contract.contentListDec, fx['POST /v1/feed']);
+  eq(xs.length, 2);
+  eq(N(CN.cnId(xs[0])), 21); eq(N(CN.cnAuthor(xs[0])), 19); eq(B(CN.cnLocked(xs[0])), false);
+  eq(CN.cnPayload(xs[0]), '{"text":"Привет, лента!"}');
+  eq(B(CN.cnLocked(xs[1])), true); eq(CN.cnPayload(xs[1]), '', 'locked teaser must come stripped');
+});
+
+test('envelope + threadListDec (/v1/thread: root + reply at depth 1)', () => {
+  const xs = envOk(Contract.threadListDec, fx['POST /v1/thread']);
+  eq(xs.length, 2);
+  eq(N(TN.tnDepth(xs[0])), 0); eq(N(TN.tnDepth(xs[1])), 1);
+  eq(CN.cnPayload(TN.tnContent(xs[1])), '{"text":"ответ в тред 🧵"}');
+  eq(N(CN.cnAuthor(TN.tnContent(xs[1]))), 25);
+});
+
+test('envelope + contentListDec (/v1/showcase: empty window)', () => {
+  eq(envOk(Contract.contentListDec, fx['POST /v1/showcase']).length, 0);
+});
+
 test('login envelope ({"data":{"token":…}} — REAL live shape, Ф4.1 drift find)', () => {
   // live /auth/login envelopes the token like every other response; Ф1.1 wrongly expected bare
   // {"token":…} — Client.login now goes through `envelope (field′ "token" string)`. Same decoder:

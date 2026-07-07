@@ -282,6 +282,50 @@ appointmentListDec : Decoder (List AppointmentView)
 appointmentListDec = list appointmentDec
 
 ------------------------------------------------------------------------
+-- Social reads (/v1/feed, /v1/thread, /v1/showcase — Ф1.3). Rows mirror the server's cvEnc/tvEnc:
+-- author 0 = none; locked = listed-but-not-readable teaser (payload comes STRIPPED to "").
+-- Showcase rows share the feed shape (cvEnc). payload is the author's opaque JSON.
+------------------------------------------------------------------------
+
+record ContentView : Set where
+  constructor mkContentView
+  field
+    cnId        : ℕ
+    cnAuthor    : ℕ        -- 0 = none
+    cnCreatedAt : ℕ
+    cnLocked    : Bool     -- true → teaser: payload = ""
+    cnPayload   : String   -- opaque author JSON ("" when locked)
+open ContentView public
+
+contentDec : Decoder ContentView
+contentDec =
+  field′ "id" nat         >>= λ i →
+  field′ "author" nat     >>= λ a →
+  field′ "createdAt" nat  >>= λ ca →
+  field′ "locked" bool    >>= λ l →
+  field′ "payload" string >>= λ p →
+  succeed (mkContentView i a ca l p)
+
+contentListDec : Decoder (List ContentView)
+contentListDec = list contentDec
+
+record ThreadNodeView : Set where
+  constructor mkThreadNodeView
+  field
+    tnDepth   : ℕ           -- 0 = root; children pre-ordered, createdAt-asc
+    tnContent : ContentView
+open ThreadNodeView public
+
+threadNodeDec : Decoder ThreadNodeView
+threadNodeDec =
+  field′ "depth" nat >>= λ d →
+  contentDec         >>= λ c →
+  succeed (mkThreadNodeView d c)
+
+threadListDec : Decoder (List ThreadNodeView)
+threadListDec = list threadNodeDec
+
+------------------------------------------------------------------------
 -- Work strategy (panel VIII.a, Ф2.5) — the CONVENTION decoder for `kvDetail` of a work-strategy
 -- TRAIT (Cxm.Knowledge header, upgrade-план C2): kDetail = {"kind":"work_strategy","sync":…,
 -- "detail_first":…,"handoff_complete_when":…}. The core keeps kDetail opaque (§8.1) and there is
