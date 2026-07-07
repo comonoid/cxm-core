@@ -1,0 +1,9 @@
+name: cxm-ui
+include:
+  .
+depend:
+  standard-library
+  agdelte
+-- Shared CXM frontend widget library (contract-bound). Layer 2 of the frontend stack:
+--   agdelte (neutral UI primitives) → cxm-ui (typed API contract + widgets) → per-product sites.
+-- Talks to cxm-server over HTTP/JSON; depends on the framework, NOT on the Agda `cxm` core.

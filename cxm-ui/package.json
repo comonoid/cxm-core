@@ -1,0 +1,13 @@
+{
+  "name": "cxm-ui",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared CXM frontend widget library (contract-bound): typed API contract + widgets over cxm-server. Layer 2 of agdelte → cxm-ui → sites.",
+  "scripts": {
+    "build:contract": "agda --js --js-es6 --js-optimize --compile-dir=_build CxmUI/Contract.agda",
+    "build:client": "agda --js --js-es6 --js-optimize --compile-dir=_build CxmUI/Client.agda",
+    "test:contract": "node test/contract.test.mjs",
+    "test:client": "node test/client.test.mjs",
+    "test": "npm run build:client && npm run test:contract && npm run test:client"
+  }
+}

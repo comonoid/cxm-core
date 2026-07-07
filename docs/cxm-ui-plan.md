@@ -48,11 +48,16 @@
 - [x] 0.4.5 Фикстуры пересняты (`reads.json`); декодеры Contract уже совпали — contract-тест 9/9 зелёный
       **⇒ Ф2 (кабинет) РАЗБЛОКИРОВАН: knowledge/episodes/expectations/appointments read'ы дают полные view.**
 
-## Ф1. Типизированный API-клиент (`CxmUI/Client.agda` + под-модули)
-- [ ] 1.1 `auth`: register/login → JWT; authed-хелпер (`httpPostH` + Bearer); обработка 401/403/409
-- [ ] 1.2 По-эндпойнтные вызовы кабинета (subjects/knowledge/episodes/appointments/expectations/promises/accounts/payments) — каждый → декодированный view или доменная ошибка
-- [ ] 1.3 По-эндпойнтные вызовы `/v1` (feed/thread/showcase/publish/follow/comment)
-- [ ] 1.4 Golden-тест клиента: `agda --js` → node против снятых фикстур
+## Ф1. Типизированный API-клиент (`CxmUI/Client.agda`)
+- [x] 1.1 Инфра: `Cfg`(base/jwt) + `CallErr`(http/server/decode) + `envelope` (data/error-конверт) +
+      `authHdr` (Bearer) + `postJson`/`getJson`; `login`→JWT. `envelope` публична (node-тестируема).
+- [x] 1.2 Кабинетные reads: `roster` + `knowledgeOf`/`episodesOf`/`expectationsOf`/`appointmentsOf`
+      — каждый `Cfg → ℕ → (Result CallErr <View> → M) → Cmd M`. (writes — добавлю по мере виджетов Ф2.)
+- [ ] 1.3 `/v1` reads (feed/thread/showcase) — **ждёт Social-view-типы в Contract** (ContentView/
+      ThreadView/ShowcaseView; см. Ф0.3). Делаю в начале Ф3 (community).
+- [x] 1.4 Golden-тест клиента (`test/client.test.mjs`, **6/6**): `envelope`+декодеры против
+      ENVELOPED-фикстур (`{"data":…}`) + error-путь (`{"error":…}`→serverErr). `npm test`: 9/9 + 6/6.
+      Добавлены view-типы в Contract: `RosterView` (тонкий /subjects), `AppointmentView`.
 
 ## Ф2. Кабинетные виджеты (операторская консоль)
 - [ ] 2.1 **Карточка клиента** — субъект + эпизоды + брони + знания (композит)

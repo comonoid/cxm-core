@@ -1,0 +1,58 @@
+/**
+ * CxmUI.Client envelope tests — the pure, node-testable core of the API client: decode the REAL
+ * {"data":…}/{"error":…} envelope from cxm-server (fixtures/reads.json) through the Contract
+ * decoders. Validates the whole client read path minus the fetch (which needs a browser/runtime).
+ *
+ * Run: agda --js ... CxmUI/Client.agda && node test/client.test.mjs
+ */
+import Client from '../_build/jAgda.CxmUI.Client.mjs';
+import Contract from '../_build/jAgda.CxmUI.Contract.mjs';
+import { readFileSync } from 'node:fs';
+
+const matchResult = (r) => r({ ok: (v) => ({ tag: 'ok', value: v }), err: (e) => ({ tag: 'err', error: e }) });
+const N = (x) => Number(x);
+const fx = JSON.parse(readFileSync(new URL('./fixtures/reads.json', import.meta.url)));
+
+const K = Contract.KnowledgeView, EP = Contract.EpisodeView, X = Contract.ExpectationView,
+      AV = Contract.AppointmentView, R = Contract.RosterView;
+
+let passed = 0, failed = 0;
+const test = (name, fn) => { try { fn(); console.log(`✓ ${name}`); passed++; } catch (e) { console.log(`✗ ${name}: ${e.message}`); failed++; } };
+const eq = (a, b, m) => { if (a !== b) throw new Error(m || `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); };
+
+// envelope(typeSlot)(decoder)(enveloped-response-string) → Result CallErr A
+const envOk = (dec, obj) => {
+  const r = matchResult(Client.envelope(null)(dec)(JSON.stringify(obj)));
+  if (r.tag !== 'ok') throw new Error(`envelope not ok: ${JSON.stringify(r)}`);
+  return r.value;
+};
+
+test('envelope + rosterListDec (GET /subjects)', () => {
+  const xs = envOk(Contract.rosterListDec, fx['GET /subjects']);
+  eq(xs.length, 1); eq(R.rvName(xs[0]), 'Клиент Анна 😀'); eq(N(R.rvId(xs[0])), 4);
+});
+test('envelope + knowledgeListDec (full KnowledgeView, /knowledge/by-subject)', () => {
+  const xs = envOk(Contract.knowledgeListDec, fx['POST /knowledge/by-subject']);
+  eq(xs.length, 1); eq(K.kvType(xs[0]), 'state'); eq(N(K.kvConfidence(xs[0])), 500); eq(K.kvStatus(xs[0]), 'active');
+});
+test('envelope + episodeListDec (/episodes/by-subject)', () => {
+  const xs = envOk(Contract.episodeListDec, fx['POST /episodes/by-subject']);
+  eq(N(EP.epvState(xs[0])), 100); eq(EP.epvJtbd(xs[0]), 'адаптация');
+});
+test('envelope + expectationListDec (/expectations/by-subject)', () => {
+  const xs = envOk(Contract.expectationListDec, fx['POST /expectations/by-subject']);
+  eq(X.xvStatus(xs[0]), 'unknown'); eq(N(X.xvLevel(xs[0])), 800); eq(X.xvSource(xs[0]), 'our_promise');
+});
+test('envelope + appointmentListDec (/appointments/by-subject)', () => {
+  const xs = envOk(Contract.appointmentListDec, fx['POST /appointments/by-subject']);
+  eq(AV.avStatus(xs[0]), 'scheduled'); eq(N(AV.avDuration(xs[0])), 60);
+});
+test('envelope error path ({"error":…} → serverErr)', () => {
+  const r = matchResult(Client.envelope(null)(Contract.rosterListDec)(JSON.stringify({ error: { code: 'conflict', message: 'conflict' } })));
+  if (r.tag !== 'err') throw new Error(`expected err, got ${JSON.stringify(r)}`);
+  const tag = r.error({ httpErr: () => 'http', serverErr: () => 'server', decodeErr: () => 'decode' });
+  eq(tag, 'server');
+});
+
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);
