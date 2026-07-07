@@ -261,8 +261,15 @@ LISTEN-колбэк на выделенном соединении.
   Остаток: PG-интерпретатор (ждёт драйвер).
 - **Ф1b. query-EDSL** — ✅ вертикальный срез DONE (`Agdelte.Storage.Query` + QueryTest): single-table
   conjunctive-filter + COUNT; колонки по имени под `T (hasNatCol …)`-гардом (idxCol-приём, без
-  зависимого плюмбинга); нативный фолд + compileCount, оба `refl`-пиннуты. Остаток: live-дифф на PG;
-  верболы по мере горячей нужды (sum/group/order/join).
+  зависимого плюмбинга); нативный фолд + compileCount, оба `refl`-пиннуты.
+  **★ LIVE-ДИФФ ГОТОВ (2026-07-07):** `server/PgQueryDiff.agda` (бинарь `pg-query-diff`) — сеет
+  knowledge-строки, затем на каждый `Count`-терм сравнивает `runCount` (фолд над `selectAll`+
+  `decodeRows`) ≡ `decodeFirstNat "count" (queryConn (compileCount q))`. **ALL GREEN 6/6** на scratch
+  (tenant=1→3, tenant=2→1, conf=500→3, t1&conf500→2, all→4, conf=999→0). **Находка G1, исправлена:**
+  `compileCount` имел хвостовую `;` → внутри json_agg-обёртки `queryConn` это синтакс-эррор (тот же
+  инвариант, что у SELECT'ов в Storage.SQL). Убрал `;`, добавил `AS "count"`-алиас + generic
+  `JsonRow.decodeFirstNat` для чтения агрегата; refl-пины в QueryTest обновлены. Верболы (sum/group/
+  order/join) — по мере горячей нужды.
 - **Ф2. Порт домена**: **ИНФРАСТРУКТУРА ГОТОВА (2026-07-06):**
   - `Cxm.Store.Verbs` ✅ — полный Req/Ans GADT на ВСЕ 28 таблиц + `rByCol` (U2 закрыт) +
     эргономичный слой (get/require/put/del/byIx/byCol/scan/fresh/lockKey/lockRoot и
