@@ -47,7 +47,8 @@ await post('/auth/register', { login: 'dev@cxm.local', password: 'devpass123', n
 const token = (await post('/auth/login', { login: 'dev@cxm.local', password: 'devpass123' })
   .catch(() => ({}))).data?.token;
 if (!token) { console.error('FATAL: нет живого cxm-server-pg на ' + API); process.exit(2); }
-const subj = (await post('/subjects', { name: 'Смоук С.' }, token)).data.id;
+const NAME = `Смоук С. ${process.pid}`;   // уникален на прогон — смоук идемпотентен при копящихся данных
+const subj = (await post('/subjects', { name: NAME }, token)).data.id;
 const WS = '{"kind":"work_strategy","sync":false,"detail_first":true,"handoff_complete_when":"письмо с итогами"}';
 await post('/knowledge', { subject: subj, detail: WS }, token);
 await post('/knowledge', { subject: subj, detail: 'обычное наблюдение (не стратегия)' }, token);
@@ -62,7 +63,7 @@ ok(stage.querySelector('.cxm-client-card'), 'виджет смонтирован
 
 stage.querySelector('.cxm-load').click();
 await until(() => stage.querySelectorAll('.cxm-roster-btn').length > 0, 'ростер загрузился');
-const btn = [...stage.querySelectorAll('.cxm-roster-btn')].find((b) => b.textContent === 'Смоук С.');
+const btn = [...stage.querySelectorAll('.cxm-roster-btn')].find((b) => b.textContent === NAME);
 ok(btn, 'ростер: субъект «Смоук С.» пришёл с живого сервера');
 
 btn.click();
@@ -70,11 +71,15 @@ await until(() => stage.querySelectorAll('.cxm-know').length >= 2, 'знания
 ok(true, 'карточка: знания выбранного субъекта загружены (2 шт.)');
 ok(stage.querySelector('.cxm-badge-state'), 'эпист-бейдж типа отрендерен');
 
-// ⚠ ИЗВЕСТНЫЙ БАГ (2026-07-07, agdelte runtime): кнопки, вложенные ГЛУБЖЕ первого уровня
-// внутри li/section (li>span>button: confirm/refute/supersede/±50; div>h2+button: Rebuild),
-// НЕ диспатчат onClick — работают только li>button (ростер, buy) и тулбар. Серверные пути
-// ревизий проверены curl'ом (strengthen 500→550 ok). Чинить в agdelte (проводка event-attrs),
-// после фикса вернуть сюда клик-тест strengthen.
+// Ф2.3-хвост: strengthen шагом ‰50 через КЛИК — ловит и стейл-ряды foreachKeyed
+// (баг рантайма, чинён 2026-07-07: ряд с тем же ключом не перерисовывался при изменении item)
+const rowBefore = [...stage.querySelectorAll('.cxm-know')]
+  .find((r) => r.textContent.includes('‰500') && r.textContent.includes('work_strategy'));
+rowBefore.querySelector('.cxm-rev-strengthen').click();
+await until(() => [...stage.querySelectorAll('.cxm-know')]
+  .some((r) => r.textContent.includes('‰550') && r.textContent.includes('work_strategy')),
+  'strengthen отразился в DOM');
+ok(true, 'ревизия strengthen(+50) кликом: ‰500 → ‰550 в DOM (без стейл-ряда)');
 
 const panel = await until(() => stage.querySelector('.cxm-ws-panel'), 'панель VIII.a появилась');
 const rows = panel.querySelectorAll('.cxm-ws');
