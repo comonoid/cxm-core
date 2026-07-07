@@ -454,6 +454,18 @@ stdlib v2.4-35 (master, pull 2026-07-05; прежний ref в /tmp/stdlib-prev-
   schema_migrations, шаг атомарно: тело+bookkeeping одной транзакцией), но кормим СГЕНЕРИРОВАННЫМИ
   стейтментами вместо *.sql-файлов; rollback-режим = down-цепочка от версии N + удаление ledger-строк.
   Wiring — после драйвера (или через приём «один exec-вызов = одна неявная транзакция»).
+- **★ ROLLBACK-РАННЕР + WELLFORMEDNESS ГОТОВЫ (2026-07-07).**
+  * `Storage.Migration.checkMigrations` — 4-й интерпретатор (PURE): каждый шаг проверяется против
+    модели, эволюционирующей по предыдущим (дубль/отсутствие таблицы|колонки, индекс/дроп несуществ.
+    колонки, дубль-колонка внутри CREATE, `CMaybe(CMaybe)`). Refl-гейт в реестре: `checkMigrations
+    cxmHistory [] ≡ []` (малформ-миграция ⇒ compile error ДО эмиссии SQL). Зубы доказаны 6 негатив-
+    refl в MigrationTest (стаб `λ _ _ → []` их бы завалил).
+  * `server/PgRollback.agda` (бинарь `pg-rollback`) — down-раннер: читает ledger newest-first, берёт
+    последние N (env CXM_ROLLBACK_STEPS=1), резолвит `down` из cxmHistory, применяет newest-first
+    (BEGIN→down→DELETE ledger-строки→COMMIT на шаг). ALL-OR-NOTHING: если любой шаг в диапазоне
+    необратим (mDropColumn/mDropTable→nothing) или id вне истории — ОТКАЗ, не трогает ничего.
+    Live-проверено на scratch: happy (id 1=create-seq → откат, ledger пуст, sequence снят) +
+    refuse (id вне диапазона → REFUSED, ledger цел).
 - **Бонус-факт:** комменты Server.Migrate документируют мульти-стейтмент поведение hpgsql ⇒ он на
   SIMPLE-протоколе — A1-риск подтверждённо мягче (ddlList всё равно оставляем — робастнее).
 - **РЕЕСТР ГОТОВ (2026-07-06): `Cxm.Store.Registry`** — единый список всех 28 таблиц

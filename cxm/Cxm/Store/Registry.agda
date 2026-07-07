@@ -19,7 +19,8 @@ open import Data.Product using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Agdelte.Storage.Schema using (Schema; Row)
-open import Agdelte.Storage.Migration using (MigStep; mCreateTable; mCreateSequence; migrate; SchemaSet)
+open import Agdelte.Storage.Migration using
+  (MigStep; mCreateTable; mCreateSequence; migrate; SchemaSet; checkMigrations)
 
 open import Cxm.Tenant
 open import Cxm.Subject
@@ -107,4 +108,9 @@ cxmHistory = genesis
 
 -- ★ the watch: replaying the history through the pure model must yield the code's schemas
 _ : migrate cxmHistory [] ≡ cxmSchemas
+_ = refl
+
+-- ★ wellformedness: the history has no structural error (dup/absent table or column, nested
+-- nullable). A malformed migration appended here is a COMPILE ERROR, before any SQL is emitted.
+_ : checkMigrations cxmHistory [] ≡ []
 _ = refl
