@@ -11,24 +11,33 @@
 
 ---
 
+> **★ POSTGRES-ONLY (2026-07-07).** WAL + in-memory движок УДАЛЁН (`Cxm.Commands`/`Txn`/`Api`/
+> `Worker`/`Store.Interface`/`Store.Wal`/`Store.Codec`/`Store.Tx2`/`Store.VerbsBase` + generic
+> `IndexedMap`/`NatMap`/`WAL`/`Txn`). Стор — типизированный EDSL, компилирующийся в SQL. Команды
+> пишутся Tx-верболами (`Cxm.Store.Verbs`) в `Cxm.CommandsV` и отдаются в один `runCxmTx`;
+> исполнение — `Cxm.Store.Pg` (вербол→SQL). Ниже — актуальная (PG) картина; детали стор-EDSL:
+> `~/cxm-core/docs/edsl-intro.md`, контракты: `~/cxm-core/docs/pg-store-plan.md`.
+
 ## 1. Слои и направление зависимостей (только ВНИЗ)
 
 ```
                     ┌────────────────────────────────────────────┐
-  ВНЕШНЕЕ           │  packs (PsychCxm.*)   entry (CxmServer)    │  route→команда; env→конфиг
+  ВНЕШНЕЕ           │  packs (PsychCxm.*)   entry (server/CxmServerPg) │  route→команда; env→конфиг
                     └───────────────┬────────────────────────────┘
                     ┌───────────────▼────────────────────────────┐
-  L6  IO-адаптеры   │  Api (HTTP)          Worker (петля/доставка)│  --guardedness; JSON/транспорт
+  L6  IO/exec       │  Store.Pg (вербол→SQL; runCxmTx=BEGIN…COMMIT)│  --guardedness; единственная
+                    │                                             │  дверь к драйверу/IO
                     └───────────────┬────────────────────────────┘
                     ┌───────────────▼────────────────────────────┐
-  L5  чтения [ПР]   │  Query Projection Decision Social (Inference*)│  чистые ф-ции над снапшотом
+  L5  чтения [ПР]   │  Projection Decision Social Inference        │  чистые ф-ции над снапшотом
                     └───────────────┬────────────────────────────┘
                     ┌───────────────▼────────────────────────────┐
-  L4  команды       │  Commands            (Inference.rebuild*)  │  Txn через шов; НЕ IndexedMap
+  L4  команды       │  CommandsV (Tx-верболы → runCxmTx)          │  атом = один терм; локи-верболы
                     └───────────────┬────────────────────────────┘
                     ┌───────────────▼────────────────────────────┐
-  L3  движок        │  Txn   Store.Interface(шов)  Store.Wal(IO) │  единственная дверь к состоянию
-                    │        Store.Base  Store.Codec              │
+  L3  стор-EDSL     │  Store.Verbs (алгебра+эргослой)  Store.Tables │  вербол-алгебра + проводка
+                    │  Store.Registry  Store.Base(Err+инд-позиции) │  схем; интерпретаторы:
+                    │  Store.VerbsTest (чистый эталон/тест-дубль)  │  чистый ↔ Pg (L6)
                     └───────────────┬────────────────────────────┘
                     ┌───────────────▼────────────────────────────┐
   L2  провод        │  Wire (схемы/кодеки)   Version (upcast)    │  Tier-1 эволюция
@@ -43,23 +52,22 @@
                     └────────────────────────────────────────────┘
 ```
 
-*`Inference` — явное исключение: чистая часть (decay/ревизия/правила) — L5, но
-`rebuildHypotheses` — Txn-проектор (L4), поэтому модуль импортирует Txn+Interface. Разрешено
-и закреплено в страже слоёв; вторая такая двойственность требует обсуждения, а не копирования.
+Генерик стор-EDSL (`Agdelte.Storage.{Schema,SQL,Free,FreeIO,JsonRow,PgConn,Migration,Query,FFI,
+Postgres}`) живёт в `agdelte-store` — домен-нейтрален; `Cxm.Store.*` привязывает его к 28 таблицам.
+`Inference` теперь ЧИСТ (детерминированная ф-ция лога, L5) — прежний Txn-проектор `rebuildHypotheses`
+удалён с WAL; verb-порт (`rebuildInferenceV`) — известный post-cutover пробел.
 
 ## 2. Правила границ (и чем каждое enforced)
 
 | # | Правило | Enforced |
 |---|---|---|
-| Г1 | `IndexedMap` знают ТОЛЬКО `Store.Base` и `Store.Interface` (принцип 11: репозиторный шов) | check-layering G1 |
-| Г2 | IO/FFI (`Agdelte.FFI.*`, `Agdelte.Storage.WAL`) — только `Api`, `Worker`, `Store.Wal` | check-layering G2 |
-| Г3 | `--guardedness` — только у Г2-модулей и зонтика `AllIO` (инфективность!) | check-layering G3 |
-| Г4 | L1-записи и L5-чтения НЕ импортят `Cxm.Store.*`/`Cxm.Commands`/FFI | check-layering G4 |
-| Г5 | `Wire` не импортит Store/Commands/FFI (кодек — чистый) | check-layering G5 |
+| Г1 | Драйвер/IO (`Agdelte.FFI.*`, `Storage.{Postgres,FFI,PgConn,FreeIO}`) — ТОЛЬКО `Store.Pg` | check-layering G1 |
+| Г2 | `--guardedness` (инфективно!) — ТОЛЬКО `Store.Pg` | check-layering G2 |
+| Г3 | L1-записи и L5-чтения (вкл. чистый `Inference`) НЕ импортят `Cxm.Store.*`/драйвер | check-layering G3 |
 | Г6 | Ядро не называет вертикали (psych/vet/…) — в т.ч. комментарии и тесты | check-neutrality |
 | Г7 | Нет module-level глобалов; инстанс = f(InstanceConfig) (принцип 12) | ревью + отсутствие postulate/IORef в ядре |
 | Г8 | Схемы эволюционируют ТОЛЬКО Tier-1: новые колонки в КОНЕЦ; опциональные — `CMaybe`; `dec*` — tolerant | refl-тесты «старая строка читается» (WireTest) |
-| Г9 | Каждое изменение состояния = команда `Txn`; HTTP/Worker — лишь адаптеры над командами | структура модулей + ревью |
+| Г9 | Каждое изменение состояния = Tx-верболы в один `runCxmTx` (атом); сервер — адаптер над командами | структура модулей + ревью |
 
 ## 3. Каталог модулей (сводные спеки)
 
@@ -92,15 +100,17 @@
 | `Version` | schemaVersion + upcast-хук (ДО декода) | tolerant≡strict на полной строке |
 | `Fulfilment` | ЧИСТЫЙ интерпретатор плана исполнения из `Offering.oMetadata` (П3, fulfilment-as-data): `parseFulfilment : String → List Grant` | толерантный токенайзер kind:id (не JSON-парсер: ядро без чистого JSON, L4 без FFI); план — server-side ДАННЫЕ, привилегия не подделывается из запроса; тотален; промисы-в-плане — закладка |
 
-### L3 — движок состояния
+### L3 — стор-EDSL (привязка генерик-движка к 28 таблицам)
 
 | Модуль | Назначение | Инварианты |
 |---|---|---|
-| `Store.Base` | `Base` (25 IndexedMap) + `CxmOp` + `apply` + `emptyBase` | nextId≥1; индексы ВЫВОДЯТСЯ из схем (`imIndexes`) |
-| `Store.Codec` | тег-байт ↔ CxmOp | exhaustive-тег на каждый Set/Del |
-| `Store.Interface` | ШОВ: `Table V` + tget/tbyIndex/tscan/putT/delT/freshId | единственное место, знающее и IndexedMap, и CxmOp-конструкторы; events: `tdel = nothing` |
-| `Store.Wal` (IO) | openStore/readBase/commitTxn | durable-before-visible; сериализация через WalHandle (воркер+listener без доп. локов) |
-| `Txn` | инстанс генерик-монады на (Base,CxmOp,Err,apply) | abort = атомарный откат всей команды |
+| `Store.Verbs` | вербол-алгебра (Req/Ans-GADT ×28) + freer `Tx` + эргослой (get/require/byIx/byCol/scan/put/del/fresh/lockRoot/lockKey) + `rootOf`/`altRoots`/`appendOnly`/`queueTable` | атом = один `Tx`-терм; локи-верболы (unlock невыразим ⇒ 2PL структурно); `lockRoots` канон-порядок |
+| `Store.Tables` | `TableCode` → tableName/schemaOf/toRowOf/fromRowOf + idxCols/idxColTys | мост-refl к Wire; pk="id"; индекс-позиции пиннятся |
+| `Store.Registry` | реестр 28 таблиц (`dumps`) → `cxmSchemas`/`genesis`/`cxmHistory` + сторож `migrate history [] ≡ cxmSchemas` | заморозить `cxmHistory` в литерал на первом прод-деплое |
+| `Store.Base` | НЕЙТРАЛЬНО: `Err` + позиции вторичных индексов (ℕ-константы) | ноль зависимостей от бэкенда; позиции = порядок `idxCol` |
+| `Store.VerbsTest` | чистый function-state хэндлер (`handlerP`) — эталон + чекер lock-дисциплины | refl-тесты без БД; гонка ⇒ красный тест |
+
+*(интерпретатор в SQL — `Store.Pg`, L6)*
 
 ### L4 — команды (все записи состояния)
 
@@ -123,22 +133,23 @@
 
 | Модуль | Экспортирует | Инварианты |
 |---|---|---|
-| `Query` | knownAbout, metaKPI, `reliabilityOf` | канонический subject-id (после merge) — забота вызывающего |
 | `Projection` | activeLines, decisionUnit, eventTypeSequence, subjectProfile, contributionOf, coSupportShare, statusDropPeaks | функции от списков; никакого скрытого состояния |
 | `Decision` | триггеры/приоритет/decide/arbitrate | внешний контур выигрывает (§8.4) |
-| `Inference`* | decay/ревизия/inferHypotheses (чисто) + `rebuildHypotheses` (Txn) | REFUTED — не delete |
+| `Inference` | decay/ревизия (strengthen/weaken/confirm/refute/supersede)/inferHypotheses — ЧИСТО | детерминированная ф-ция лога (rebuild-from-scratch); REFUTED — не delete; verb-порт rebuild — post-cutover пробел |
 | `Social` | followsᵇ/entitledUpᵇ/canAccess/canList (листинг≠чтение, S7) + feedViews/threadViews (locked-тизеры; лента = только контент, не комменты) + showcaseViews (витрина: ранги+validTo-окно) + threadOf/feedOf (сырые) | грант НАСЛЕДУЕТСЯ вниз по дереву (продажа раздела одним грантом); неизвестная политика ⇒ deny; лента/тред — rebuild-from-scratch. Закладки: WS-push, "circle:<id>", переносимый Entitlement, fulfilment-as-data (П3). rUpdatedAt/updateResource — реализовано (П2) |
 
-### L6 — IO-адаптеры
+### L6 — IO/exec (единственная дверь к драйверу)
 
 | Модуль | Назначение | Контракты |
 |---|---|---|
-| `Api` | HTTP: parse JSON → команда/чтение → `{data}/{error}` | ни байта HTML; два контура: операторский (`routeExt`, JWT/authz-хук) и публичный `/v1` (`routeSite`, integration-токен, CORS); listings живых сущностей фильтруют soft-deleted |
-| `Worker` | петля: dueOutbox→deliver→markSent/markAttempt; runMaintenance | транспорт — параметр `deliver` (ядро наивно к сети) |
+| `Store.Pg` | `exec : Conn → (r:Req) → IO (Err ⊎ Ans r)` (вербол→ОДИН SQL-стейтмент) + `runCxmTx = FreeIO.runTxPg` (BEGIN→fold→COMMIT/ROLLBACK) | `--guardedness`; ixColName/ixKeyLit по типу из схемы (G2: CBool→TRUE/FALSE); SELECT без хвостовой `;` (G1); append-only отвергает del |
+
+Сам HTTP-сервер — `~/cxm-core/server/CxmServerPg.agda` (роуты→команды `CommandsV`, RBAC, /v1, PG-воркер+nudge);
+диагностика — `PgDiff` (native≡PG) и `PgBench` (чаттинес). Все три — вне `Cxm/` (build-харнесс `agdelte`).
 
 ### Зонтики/тесты
-`All` (чистый), `AllIO` (+guardedness), `Test/All` + 16 тест-модулей (refl = структурные
-равенства и кодеки; store-read проверяется live-smoke, НЕ refl).
+`Test/All` + тест-модули (refl = структурные равенства и кодеки; store — через чистый `handlerP`
+и live `pg-diff`, НЕ refl). WAL-эра тесты (Commands/Store/Query) удалены с движком.
 
 ## 4. Стабильные внешние контракты (менять только аддитивно)
 

@@ -24,8 +24,6 @@ open import Cxm.Num using (Permille; neutralSentiment)
 open import Cxm.Knowledge
 open import Cxm.Event
 open import Cxm.Hypothesis using (hypothesize)
-open import Cxm.Txn
-open import Cxm.Store.Interface
 
 ------------------------------------------------------------------------
 -- Decay (pure; from `now`)
@@ -106,32 +104,8 @@ private
 inferHypotheses : List ExperienceEvent → List Knowledge
 inferHypotheses evs = dedupBy [] (foldr (λ ev acc → ruleOf ev ++ acc) [] evs)
 
-------------------------------------------------------------------------
--- Store-level rebuild (Txn): drop the materialized ACTIVE hypotheses and re-derive from the
--- event log. Because inference is pure, `rebuild ∘ rebuild ≡ rebuild` (idempotent) and the
--- result depends only on [СОБ]+[ВХ] — "rebuild any projection from scratch" (§4.16, §8.3).
---
--- Audit #C: only ACTIVE inferred hypotheses are cleared. SETTLED judgments — REFUTED /
--- CONFIRMED / SUPERSEDED — are RETAINED (§4.1: refutation is retained, never deleted). A fuller
--- event-sourced inference would re-derive those settled states from the log too (and consult
--- existing refutations before re-proposing a claim); the MVP rules produce only fresh ACTIVE
--- hypotheses, so preserving settled rows is the faithful choice. Inferred TRAIT/STATE [ПР] have
--- no rules yet, so they are left untouched (nothing would regenerate them).
-------------------------------------------------------------------------
-
-private
-  isActiveHyp : Knowledge → Bool
-  isActiveHyp k with kType k | kStatus k
-  ... | HYPOTHESIS | ACTIVE = true
-  ... | _          | _      = false
-
-  hypIds : List (ℕ × Knowledge) → List ℕ
-  hypIds = foldr (λ p acc → if isActiveHyp (proj₂ p) then proj₁ p ∷ acc else acc) []
-
-  insertK : Knowledge → Txn ⊤
-  insertK k = freshId >>=T λ kid → putT knowledgeT (record k { kId = kid }) >>T returnT tt
-
-rebuildHypotheses : (now : ℕ) → Txn ⊤
-rebuildHypotheses now =
-  scanT knowledgeT >>=T λ ks → forEachT (hypIds ks) (delT knowledgeT) >>T
-  scanT eventsT    >>=T λ evs → forEachT (inferHypotheses (map proj₂ evs)) insertK
+-- NB: this module stays PURE — its whole point is that inference is a deterministic function of
+-- the event log, so the projection rebuilds from scratch (§4.16, §8.3). The WAL Txn wrapper
+-- `rebuildHypotheses` was removed with the WAL backend (Postgres-only, 2026-07-07); a verb-world
+-- port (`rebuildInferenceV` over Cxm.Store.Verbs: scan+del ACTIVE hyps → re-derive via
+-- `inferHypotheses`) is a KNOWN post-cutover gap — the PG cabinet never carried it.

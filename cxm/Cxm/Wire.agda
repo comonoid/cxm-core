@@ -346,7 +346,7 @@ decEdge s = decodeRow edgeSchema s >>=ᵐ edgeFromRow
 
 identitySchema : Schema
 identitySchema = mkCol "id" CNat ∷ idxCol "subject" (CFK "subject") ∷ mkCol "channel" CStr
-               ∷ mkCol "external_id" CStr ∷ mkCol "verified" CBool ∷ mkCol "tenant" (CFK "tenant")
+               ∷ mkCol "external_id" CStr ∷ mkCol "verified" CBool ∷ idxCol "tenant" (CFK "tenant")   -- idx 1: byTenant (audit-bot bounded read)
                ∷ mkCol "created_at" CNat ∷ []
 
 identityToRow : Identity → Row identitySchema
@@ -893,7 +893,7 @@ decUser s = mapMaybe userFromRow (decodeRow userSchema s)
 ------------------------------------------------------------------------
 
 intTokenSchema : Schema
-intTokenSchema = mkCol "id" CNat ∷ mkCol "tenant" (CFK "tenant") ∷ mkCol "token" CStr
+intTokenSchema = mkCol "id" CNat ∷ idxCol "tenant" (CFK "tenant") ∷ mkCol "token" CStr   -- idx 0: byTenant (audit-bot bounded read)
                ∷ mkCol "scope" CStr ∷ mkCol "origin" CStr ∷ mkCol "created_at" CNat
                ∷ mkCol "revoked_at" CNat ∷ []
 

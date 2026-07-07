@@ -33,6 +33,7 @@ open import Cxm.Edge using (SubjectEdge; seFrom; seTo; seKind; seValidFrom; seVa
 open import Cxm.Entitlement using (Entitlement; enSubject; enTargetKind; enTarget
                                   ; enValidFrom; enValidTo; EntTarget; TResource)
 open import Cxm.Resource using (Resource; rId; rParent; rAuthor; rVisibility; rListing; rAnchorKind; rCreatedAt; rDeletedAt)
+import Cxm.AccessPolicy as AP
 
 private
   isFollow : EdgeKind → Bool
@@ -86,27 +87,24 @@ entitledUpᵇ now viewer ents rs r0 = go (lengthᵣ rs) r0
 -- policy table. `viewer = nothing` is an anonymous read (public only). The snapshot `rs` is
 -- needed for grant INHERITANCE ("entitled" checks the node and its ancestors — buying a tree
 -- root sells the whole section/course/doc set).
+-- Access = author-sees-own ∨ the owner's policy (advanced policy-as-data, RB2). `rVisibility`
+-- nothing ⇒ default "public"; the presets are single-atom policies so behaviour is preserved.
+-- `compilePolicy` FAIL-CLOSES: malformed/unsafe ⇒ nothing ⇒ deny (never expose on a typo).
 canAccess : (now : ℕ) (viewer : Maybe ℕ) → List SubjectEdge → List Entitlement
           → List Resource → Resource → Bool
-canAccess now viewer edges ents rs r = maybe′ withViewer anon viewer
+canAccess now viewer edges ents rs r = authorSeesOwn ∨ maybe′ (AP.eval (decider viewer)) false (AP.compilePolicy policyStr)
   where
-    policy : Maybe String
-    policy = rVisibility r
-    isPublic : Bool
-    isPublic = maybe′ (λ p → primStringEquality p "public") true policy
-    anon : Bool
-    anon = isPublic
-    byPolicy : (v : ℕ) → String → Bool
-    byPolicy v p =
-      if primStringEquality p "public" then true
-      else if primStringEquality p "followers"
-        then maybe′ (λ a → followsᵇ now v a edges) false (rAuthor r)
-      else if primStringEquality p "entitled" then entitledUpᵇ now v ents rs r
-      else false                                            -- unknown policy ⇒ deny
-    withViewer : ℕ → Bool
-    withViewer v =
-      if maybe′ (λ a → a ≡ᵇ v) false (rAuthor r) then true  -- the author always sees their own
-      else maybe′ (byPolicy v) true policy
+    policyStr : String
+    policyStr = maybe′ (λ p → p) "public" (rVisibility r)
+    authorSeesOwn : Bool
+    authorSeesOwn = maybe′ (λ a → maybe′ (λ v → a ≡ᵇ v) false viewer) false (rAuthor r)
+    decider : Maybe ℕ → AP.Atom → Bool
+    decider _        AP.aPublic    = true
+    decider (just v) AP.aFollowers = maybe′ (λ a → followsᵇ now v a edges) false (rAuthor r)
+    decider (just v) AP.aEntitled  = entitledUpᵇ now v ents rs r
+    decider (just v) (AP.aSub n)   = v ≡ᵇ n
+    decider (just v) (AP.aNode n)  = entitledᵇ now v n ents
+    decider nothing  _             = false
 
 -- the FEED projection (закладка: feed-as-projection): live resources authored by subjects the
 -- viewer follows (plus their own), access-filtered, newest-first.

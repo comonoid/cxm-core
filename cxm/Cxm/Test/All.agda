@@ -16,11 +16,9 @@ open import Cxm.Test.WireTest
 open import Cxm.Test.EnumCodecTest
 
 -- Phase 5
-open import Cxm.Test.StoreTest
 
 -- Phase 6
 open import Cxm.Test.ScheduleTest
-open import Cxm.Test.CommandsTest
 
 -- Phase 7
 open import Cxm.Test.InferenceTest
@@ -29,7 +27,6 @@ open import Cxm.Test.SocialTest
 open import Cxm.Test.FulfilmentTest
 
 -- Phase 8
-open import Cxm.Test.QueryTest
 open import Cxm.Test.DecisionTest
 
 -- Phase 9

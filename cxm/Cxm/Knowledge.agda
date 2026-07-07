@@ -19,12 +19,13 @@
 -- Refutation is a move to REFUTED, never a delete (knowledge is retained).
 module Cxm.Knowledge where
 
-open import Data.Nat using (ℕ; _<?_)
+open import Data.Nat using (ℕ; _<?_; _⊓_; s≤s)
+open import Data.Nat.Properties using (m⊓n≤n)
 open import Data.Maybe using (Maybe; nothing)
 open import Data.String using (String)
-open import Relation.Nullary.Decidable using (True)
+open import Relation.Nullary.Decidable using (True; fromWitness)
 
-open import Cxm.Num using (Permille; fullConfidence; permilleMax)
+open import Cxm.Num using (Permille; fullConfidence; permilleMax; clampPermille)
 open import Cxm.Tenant using (TenantId)
 
 ------------------------------------------------------------------------
@@ -126,3 +127,37 @@ mkInferred : (kId subject : ℕ) (tenant : TenantId) (ty : InferredType)
              (decay validFrom : ℕ) (validTo : Maybe ℕ) (episode : Maybe ℕ) → Knowledge
 mkInferred i subj ten ty conf detail dec vf vt ep =
   mkKnowledge i subj ten (inferredType→Epistemic ty) INFERRED conf vf vt dec ACTIVE detail ep
+
+-- Runtime front door to `mkInferred` for domain WRITE commands (Phase 8/9): a runtime
+-- confidence cannot carry the compile-time `conf < 1000` witness, so we clamp it to
+-- `conf ⊓ 999` (always < permilleMax) and discharge the proof here once, rather than at
+-- every call site. Preserves the INFERRED invariant by construction.
+inferredK : (kId subject : ℕ) (tenant : TenantId) (ty : InferredType) (conf : Permille)
+            (detail : String) (decay validFrom : ℕ) (validTo episode : Maybe ℕ) → Knowledge
+inferredK i subj ten ty conf detail dec vf vt ep =
+  mkInferred i subj ten ty (conf ⊓ 999) {fromWitness (s≤s (m⊓n≤n conf 999))} detail dec vf vt ep
+
+-- A STATED envelope ([ВХ] — asserted by subject/operator): not bound by the INFERRED<1000
+-- gate (a declaration can be held with any confidence), so it uses the raw constructor with
+-- `clampPermille` (mirrors `Cxm.Trait.statedTrait`). `ty : InferredType` EXCLUDES FACT by type —
+-- a stated claim is refutable, never objective (§4.1) — so a stated FACT is unconstructable.
+statedK : (kId subject : ℕ) (tenant : TenantId) (ty : InferredType) (conf : Permille)
+          (detail : String) (decay validFrom : ℕ) (validTo episode : Maybe ℕ) → Knowledge
+statedK i subj ten ty conf detail dec vf vt ep =
+  mkKnowledge i subj ten (inferredType→Epistemic ty) STATED (clampPermille conf) vf vt dec ACTIVE detail ep
+
+------------------------------------------------------------------------
+-- Revision moves (§4.16) — the closed set of ways a knowledge unit is revised. The revision
+-- SEMANTICS (strengthen/weaken/confirm/refute/supersede) are the pure moves in Cxm.Inference;
+-- this is just the command vocabulary domain commands dispatch on. `KRedetail` rewrites the
+-- opaque claim/subvariant JSON (kDetail). Lives here (not the deleted WAL command layer) so both
+-- the pure test handler and the Postgres command port share one definition.
+------------------------------------------------------------------------
+
+data KRevision : Set where
+  KStrengthen : ℕ → KRevision       -- confirming evidence (+d, capped < 1000)
+  KWeaken     : ℕ → KRevision       -- disconfirming evidence (−d)
+  KConfirm    : KRevision           -- promote status → CONFIRMED (still refutable)
+  KRefute     : KRevision           -- → REFUTED (conf 0), retained
+  KSupersede  : KRevision           -- → SUPERSEDED
+  KRedetail   : String → KRevision  -- rewrite kDetail
