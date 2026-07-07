@@ -15,7 +15,8 @@
     "build:widgets": "npm run build:card && npm run build:feed && npm run build:thread && npm run build:showcase && npm run build:paywall",
     "test:contract": "node test/contract.test.mjs",
     "test:client": "node test/client.test.mjs",
-    "test": "npm run build:widgetlib && npm run test:contract && npm run test:client",
+    "test:update": "agda --compile-dir=_build CxmUI/UpdateTest.agda",
+    "test": "npm run build:widgetlib && npm run test:contract && npm run test:client && npm run test:update",
     "dev": "npm run build:widgets && node dev/serve.mjs",
     "test:smoke": "npm run build:widgets && node dev/smoke.mjs"
   }

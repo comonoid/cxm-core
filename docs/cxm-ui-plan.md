@@ -173,6 +173,36 @@
   ядро); node-тесты на `errBody`/`escJson`/`showAmount`; `showAmount` переехал в Widget;
   дев-стили evidence-панели и :disabled.
 
+## Аудит-2 2026-07-07 — ВСЕ находки закрыты (смоук 28/28, юнит 11+18 + refl-тесты, agdelte зелёный)
+- **Полнота слоя (№1–3, №5):** Client получил ПИШУЩУЮ поверхность — кабинет-creates
+  (`createSubject/Knowledge/Episode/Expectation`, `bookAppointment`, `attachEvidence`),
+  кураторство витрины (`linkResource`/`unlinkResource`), `mint/revokeIntegrationToken`
+  (+`MintedToken`), /v1-писалки (`publishV1`/`commentV1`/`followV1`) и **`mergeSession`**
+  (замыкает paywall-цикл: покупка анонима не остаётся у куки-призрака). UI: блокнот —
+  «➕ добавить наблюдение» (STATED прямо из карточки), тред — форма ответа (parent=root,
+  busy-гард, перезагрузка).
+- **№4:** listEvidence СЕРВЕР-СИДЕ джойнит событие — evidence-ряды несут eventAt+eventPayload
+  («событие #N» с содержимым, не голый указатель); EvidenceView расширен.
+- **№6–11:** evidence-панель — toggle + «✕ закрыть», ошибка прячет панель (не «пусто»);
+  busy-фейлсейф: Select сбрасывает busy; статусы ревизий по-русски (`tKindRu`); httpErr-тело
+  усечено до 120 симв. (`truncTo`); шаг ±50 — один источник (`revStep`, подпись из него).
+- **№12:** `CxmUI/UpdateTest.agda` — refl-тесты чистой update-логики (стейл-дроп, сбросы Select,
+  busy-переходы, evidence-toggle, reply-очистка, nextExtId, emptyOr) — `npm run test:update`,
+  метод «чистая логика → refl» распространён на виджеты.
+- **№13:** `verbatimPayload` — полиморфно в Widget (одно определение на 3 виджета).
+- **№14:** контракт limit задокументирован в Contract («тихий срез», курсор — отдельным шагом).
+- **№15:** agdelte: и не-H `httpGet/httpPost` отдают тело non-2xx в onErr.
+- **№16:** `cxm-ui/README.md` — consumer-doc для авторов сайтов (слоёвка, quick start, хуки,
+  embedding, CSS-классы, тесты).
+- **№17:** Paywall: per-purchase ext_id (`nextExtId` = prefix-N, чистая и refl-тестируемая).
+- **№18:** смоук: feedAppWith+limit=1 через виджет, наблюдение, ответ, toggle, payload в «почему».
+- **№19:** evidence-ряд с t= и payload.
+- **★ Находка смоуком: controlled-input десинк в agdelte** — intra-batch round-trip
+  (""→typed→"") не менял lastValue, а живой `el.value` расходился с моделью (пользовательский
+  ввод пишет в DOM напрямую) ⇒ value-binding не чистил поле. Фикс: для `value` дифф против
+  ЖИВОГО `b.node.value` (каретка в безопасности — пишем только при реальном расхождении).
+  forms 20/20, dom 66/66.
+
 ## Заметки / решения по ходу
 - Ф2.3-хвост ЗАКРЫТ (2026-07-07): `Client.reviseKnowledgeBy` (amount) + кнопки «▲ +50»/«▼ −50»
   (фикс-шаг вместо ввода числа) + **redetail-форма** («✎ детали» → преднаполненный input →

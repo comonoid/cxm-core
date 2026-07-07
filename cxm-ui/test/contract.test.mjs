@@ -44,9 +44,11 @@ test('expectationDec (status = met)', () => {
   eq(N(X.xvLevel(v)), 700); eq(X.xvStatus(v), 'met'); eq(X.xvTopic(v), 'reply');
 });
 
-test('evidenceDec (real /knowledge/evidence/by-knowledge row)', () => {
-  const v = decOk(Contract.evidenceDec, '{"id":367,"knowledge":366,"event":365,"createdAt":1783442268}');
+test('evidenceDec (real row, event-enriched: payload + timestamp)', () => {
+  const v = decOk(Contract.evidenceDec,
+    '{"id":367,"knowledge":366,"event":365,"createdAt":1783442268,"eventAt":1783442268,"eventPayload":"{\\"page\\":\\"/pricing\\"}"}');
   eq(N(ED.edvKnowledge(v)), 366); eq(N(ED.edvEvent(v)), 365);
+  eq(N(ED.edvEventAt(v)), 1783442268); eq(ED.edvEventPayload(v), '{"page":"/pricing"}');
 });
 
 test('episodeDec (line of work)', () => {

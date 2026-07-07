@@ -52,7 +52,7 @@ open import Cxm.Episode using
   ( Episode; epId; epSubject; epProtocol; epTenant; epCurrentState; epJtbd; epDeletedAt )
 open import Cxm.Appointment using (Appointment; apTenant; apStartsAt; apDurationMin; apStatus; ApptStatus; ApScheduled; ApCanceled; ApCompleted; ApNoShow)
 open import Cxm.Site using (IntTokenRow; itkTenant; itkScope; itkRevokedAt; webhookPayload)
-open import Cxm.Event using (mkExperienceEvent; Integration; Client; View)
+open import Cxm.Event using (mkExperienceEvent; Integration; Client; View; eeTimestamp; eePayload)
 open import Cxm.Edge using (SubjectEdge)
 open import Cxm.Entitlement using (Entitlement)
 open import Cxm.Resource using (Resource; rId; rPayload; rAuthor; rCreatedAt; ResourceLink)
@@ -322,18 +322,26 @@ private
                     <> ",\"revoked\":" <> (maybe′ (λ _ → "true") "false" (itkRevokedAt r)) <> "}"
 
   -- cxm-ui аудит №8: the explainability read — the evidence chain behind ONE knowledge unit
-  -- (why the system believes it). Mirrors cxm-ui evidenceDec field-for-field.
+  -- (why the system believes it). Each row is JOINED with its event (timestamp + opaque payload):
+  -- a bare event id is a pointer, not an explanation (аудит-2 №4). Mirrors cxm-ui evidenceDec.
   listEvidence : (ct kid : ℕ) → Tx String
   listEvidence ct kid =
     byIx tcEvidence evdByKnowledge kid >>=T λ ids →
     getEach tcEvidence ids >>=T λ es →
-    returnT ("[" <> joinComma (map enc (mine es)) <> "]")
+    encAll (mine es) >>=T λ rows →
+    returnT ("[" <> joinComma rows <> "]")
     where
       mine : List Evidence → List Evidence
       mine = foldr (λ e acc → if evdTenant e ≡ᵇ ct then e ∷ acc else acc) []
-      enc : Evidence → String
-      enc e = "{\"id\":" <> show (evdId e) <> ",\"knowledge\":" <> show (evdKnowledge e)
-              <> ",\"event\":" <> show (evdEvent e) <> ",\"createdAt\":" <> show (evdCreatedAt e) <> "}"
+      enc1 : Evidence → Tx String
+      enc1 e = get tcEvent (evdEvent e) >>=T λ mev →
+        returnT ("{\"id\":" <> show (evdId e) <> ",\"knowledge\":" <> show (evdKnowledge e)
+                <> ",\"event\":" <> show (evdEvent e) <> ",\"createdAt\":" <> show (evdCreatedAt e)
+                <> ",\"eventAt\":" <> show (maybe′ eeTimestamp 0 mev)
+                <> ",\"eventPayload\":" <> str (maybe′ eePayload "" mev) <> "}")
+      encAll : List Evidence → Tx (List String)
+      encAll [] = returnT []
+      encAll (e ∷ es′) = enc1 e >>=T λ r → encAll es′ >>=T λ rs → returnT (r ∷ rs)
 
   -- cxm-ui аудит №12: optional page cap for the community readers (0 = всё). They are
   -- newest-first/rank-ordered, so `limit n` = "the top n" — the compatible pagination seed.

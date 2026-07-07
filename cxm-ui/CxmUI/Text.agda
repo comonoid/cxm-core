@@ -7,6 +7,8 @@
 -- Naming: t<Widget><What>; shared pieces are unprefixed.
 module CxmUI.Text where
 
+open import Agda.Builtin.String using (primStringEquality)
+open import Data.Bool using (if_then_else_)
 open import Data.String using (String)
 
 -- shared
@@ -42,13 +44,25 @@ tCardRebuild      = "↻ перестроить вывод"
 tCardEpisodes     = "Эпизоды"
 tCardAppointments = "Брони"
 tCardExpectations = "Ожидания"
-tCardConfirm tCardRefute tCardSupersede tCardStrengthen tCardWeaken tCardRedetail : String
+tCardConfirm tCardRefute tCardSupersede tCardRedetail : String
 tCardConfirm    = "✓ подтвердить"
 tCardRefute     = "✗ опровергнуть"
 tCardSupersede  = "⤳ заменить"
-tCardStrengthen = "▲ +50"
-tCardWeaken     = "▼ −50"
 tCardRedetail   = "✎ детали"
+-- шаг ±N приходит из виджета (один источник — ClientCard.revStep), тут только префиксы
+tCardStrengthenPfx tCardWeakenPfx : String
+tCardStrengthenPfx = "▲ +"
+tCardWeakenPfx     = "▼ −"
+-- русские подписи wire-kind'ов ревизий для статус-строки (сами kind'ы — контракт, не локаль)
+tKindRu : String → String
+tKindRu k =
+  if primStringEquality k "confirm"    then "подтверждение"
+  else if primStringEquality k "refute"     then "опровержение"
+  else if primStringEquality k "supersede"  then "замена"
+  else if primStringEquality k "strengthen" then "усиление"
+  else if primStringEquality k "weaken"     then "ослабление"
+  else if primStringEquality k "redetail"   then "правка деталей"
+  else k
 tCardSaveDetail tCardCancel : String
 tCardSaveDetail = "Сохранить детали"
 tCardCancel     = "Отмена"
@@ -58,12 +72,17 @@ tCardEpState = " · состояние "
 tCardBooking = "бронь #"
 tCardMin     = " мин · "
 tCardLevel   = "уровень "
-tCardWhy tCardWhyHead tCardEvidenceRow tCardNoEvidence tCardLoadingEvidence : String
+tCardWhy tCardWhyHead tCardEvidenceRow tCardNoEvidence tCardLoadingEvidence tClose : String
 tCardWhy             = "🔎 почему"
 tCardWhyHead         = "Почему (цепочка доказательств)"
 tCardEvidenceRow     = "событие #"
 tCardNoEvidence      = "доказательств не записано"
 tCardLoadingEvidence = "загрузка доказательств…"
+tClose               = "✕ закрыть"
+tCardObsPlaceholder tCardAddObs tCardAddingObs : String
+tCardObsPlaceholder = "новое наблюдение (STATED)…"
+tCardAddObs         = "➕ добавить наблюдение"
+tCardAddingObs      = "добавляю наблюдение…"
 
 -- panel VIII.a
 tWsHead tWsSync tWsAsync tWsDetailFirst tWsPictureFirst tWsHandoff tWsBare : String
@@ -90,6 +109,10 @@ tThreadHint    = "нажми «Обновить» — разговор"
 tThreadLoading = "загрузка разговора…"
 tThreadEmpty   = "разговор пуст"
 tLockedReply   = "🔒 закрытая реплика"
+tReply tReplying tReplyPlaceholder : String
+tReply            = "Ответить"
+tReplying         = "отправляю ответ…"
+tReplyPlaceholder = "текст ответа…"
 
 -- showcase
 tShowcaseHint tShowcaseLoading tShowcaseEmpty : String

@@ -109,7 +109,20 @@ await post('/knowledge/evidence', { knowledge: klist[0].id, event: evId }, token
 wsKid.querySelector('.cxm-rev-why').click();
 const evPanel = await until(() => stage.querySelector('.cxm-evidence-panel'), 'evidence-панель появилась');
 await until(() => evPanel.textContent.includes(`событие #${evId}`), 'цепочка показала событие');
-ok(true, `«почему»: evidence-панель показывает событие #${evId} (explainability)`);
+ok(evPanel.textContent.includes('{"page":"/smoke"}'),
+   `«почему»: событие #${evId} С СОДЕРЖИМЫМ (payload виден, не голый id)`);
+wsKid.querySelector('.cxm-rev-why').click();   // toggle: повторный клик закрывает
+await until(() => !stage.querySelector('.cxm-evidence-panel'), 'evidence-панель закрылась');
+ok(true, '«почему»: toggle — повторный клик закрыл панель');
+
+// аудит-2 №1: оператор добавляет наблюдение прямо из блокнота
+const obsInp = stage.querySelector('.cxm-obs-input');
+obsInp.value = 'свежее наблюдение из смоука';
+obsInp.dispatchEvent(new window.Event('input', { bubbles: true }));
+stage.querySelector('.cxm-obs-add').click();
+await until(() => [...stage.querySelectorAll('.cxm-know')]
+  .some((r) => r.textContent.includes('свежее наблюдение из смоука')), 'наблюдение добавилось');
+ok(true, 'блокнот: «добавить наблюдение» → создано и видно в списке');
 
 const panel = await until(() => stage.querySelector('.cxm-ws-panel'), 'панель VIII.a появилась');
 const rows = panel.querySelectorAll('.cxm-ws');
@@ -174,6 +187,26 @@ ok([...thStage.querySelectorAll('.cxm-depth-1')].some((n) => n.textContent.inclu
 const lockedNode = thStage.querySelector('.cxm-node-locked');
 ok(lockedNode && lockedNode.textContent.includes('🔒') && !lockedNode.textContent.includes('приватная'),
    'тред: закрытая реплика — тизер-стрип, payload зачищен');
+
+// аудит-2 №2: форма ответа в треде (comment с parent=root, перезагрузка)
+const replyInp = thStage.querySelector('.cxm-reply-input');
+replyInp.value = '{"text":"ответ из формы"}';
+replyInp.dispatchEvent(new window.Event('input', { bubbles: true }));
+thStage.querySelector('.cxm-reply-send').click();
+await until(() => [...thStage.querySelectorAll('.cxm-thread-node')]
+  .some((n) => n.textContent.includes('ответ из формы')), 'ответ появился в треде');
+ok(replyInp.value === '', 'тред: форма ответа очистилась после отправки');
+ok(true, 'тред: ответ из формы виджета опубликован и виден');
+
+// аудит-2 №12/№18: feedAppWith (кастомный хук-путь) + limit=1 через виджет
+const Widget = (await import('../_build/jAgda.CxmUI.Widget.mjs')).default;
+const limStage = document.createElement('div');
+document.body.appendChild(limStage);
+await runReactiveApp(
+  { app: Feed.feedAppWith(Widget.verbatimPayload(null)(null))(v1cfg)(1n) }, limStage);
+limStage.querySelector('.cxm-load').click();
+await until(() => limStage.querySelectorAll('.cxm-post').length === 1, 'limit=1 → один пост');
+ok(true, 'feedAppWith + limit=1: ровно один (самый свежий) пост через виджет');
 
 // ── Ф3.3: витрина (полка + link с рангами, протухший validTo-слот исчезает) ─
 const Showcase = (await import('../_build/jAgda.CxmUI.Showcase.mjs')).default;

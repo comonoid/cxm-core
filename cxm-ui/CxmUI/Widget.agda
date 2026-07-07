@@ -16,6 +16,7 @@ open import Data.List using (List; []; _∷_; [_])
 
 open import Agdelte.Reactive.Node
 
+open import CxmUI.Contract using (ContentView; cnPayload)
 open import CxmUI.Client using (CallErr; httpErr; serverErr; decodeErr; aeCode)
 open import CxmUI.Text
 
@@ -40,3 +41,9 @@ toolbar label msg status =
   div (class "cxm-toolbar" ∷ [])
     ( button (onClick msg ∷ class "cxm-load" ∷ []) [ text label ]
     ∷ span (class "cxm-status" ∷ []) [ bindF status ] ∷ [] )
+
+-- the default payload renderer of the social widgets: verbatim opaque JSON. Model/Msg-agnostic
+-- (a text node dispatches nothing), so ONE definition serves Feed/Thread/Showcase (аудит-2 №13);
+-- a site swaps it via the `*AppWith` builders.
+verbatimPayload : ∀ {Model Msg : Set} → ContentView → Node Model Msg
+verbatimPayload c = span (class "cxm-post-payload" ∷ []) [ text (cnPayload c) ]

@@ -11,8 +11,9 @@
 -- webhook. Buy is busy-guarded: no double submits (аудит №4).
 module CxmUI.Paywall where
 
-open import Data.Bool using (Bool; true; false)
-open import Data.Nat using (ℕ)
+open import Agda.Builtin.String using (primStringEquality)
+open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Nat using (ℕ; suc)
 open import Data.Nat.Show using (show)
 open import Data.String using (String; _++_)
 open import Data.List using (List; []; _∷_; [_])
@@ -31,15 +32,22 @@ record Model : Set where
   constructor mkModel
   field
     cfg         : V1Cfg
-    extId       : String              -- provider-correlation id for purchases ("" = none)
+    extId       : String              -- provider-correlation PREFIX ("" = none); per-purchase
+                                      -- ext_id = extId-N (аудит-2 №17: без коллизий при 2+ покупках)
     items       : List OfferingView
     status      : String
     busy        : Bool                -- purchase in flight → «Купить» выключены
     lastPayment : ℕ                   -- id последнего созданного платежа (0 = нет) — сайт читает
+    purchases   : ℕ                   -- счётчик покупок сессии (суффикс ext_id)
 open Model public
 
 initModel : V1Cfg → String → Model
-initModel c ext = mkModel c ext [] tPaywallHint false 0
+initModel c ext = mkModel c ext [] tPaywallHint false 0 0
+
+-- the ext_id actually sent for the NEXT purchase (pure: model → id; testable)
+nextExtId : Model → String
+nextExtId m = if primStringEquality (extId m) "" then ""
+              else extId m ++ "-" ++ show (suc (purchases m))
 
 data Msg : Set where
   Load   : Msg
@@ -51,14 +59,15 @@ updateModel : Msg → Model → Model
 updateModel Load m = record m { status = tPaywallLoading }
 updateModel (Got (ok xs)) m = record m { items = xs ; status = emptyOr tPaywallEmpty xs }
 updateModel (Got (err e)) m = record m { status = errText e }
-updateModel (Buy off) m = record m { status = tBuying ++ show off ++ tEllipsis ; busy = true }
+updateModel (Buy off) m =
+  record m { status = tBuying ++ show off ++ tEllipsis ; busy = true ; purchases = suc (purchases m) }
 updateModel (Bought (ok pid)) m =
   record m { status = tPayment ++ show pid ++ tPaymentCreated ; busy = false ; lastPayment = pid }
 updateModel (Bought (err e)) m = record m { status = errText e ; busy = false }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf Load      m = offeringsV1 (cfg m) Got
-cmdOf (Buy off) m = purchase (cfg m) off (extId m) Bought
+cmdOf (Buy off) m = purchase (cfg m) off (nextExtId m) Bought   -- cmd видит PRE-update модель
 cmdOf _         _ = ε
 
 offerRow : OfferingView → ℕ → Node Model Msg

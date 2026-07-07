@@ -23,7 +23,7 @@ open import Agdelte.Reactive.Node
 open import CxmUI.Contract
 open import CxmUI.Client
 open import CxmUI.Text
-open import CxmUI.Widget using (errText; emptyOr; toolbar)
+open import CxmUI.Widget using (errText; emptyOr; toolbar; verbatimPayload)
 
 record Model : Set where
   constructor mkModel
@@ -60,9 +60,6 @@ slotRowWith payloadView c _ =
         then span (class "cxm-post-teaser" ∷ []) [ text tLockedContent ]
         else payloadView c)
     ∷ [] )
-
-verbatimPayload : ContentView → Node Model Msg
-verbatimPayload c = span (class "cxm-post-payload" ∷ []) [ text (cnPayload c) ]
 
 showcaseTemplateWith : (ContentView → Node Model Msg) → Node Model Msg
 showcaseTemplateWith payloadView =

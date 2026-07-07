@@ -138,20 +138,24 @@ episodeListDec = list episodeDec
 record EvidenceView : Set where
   constructor mkEvidenceView
   field
-    edvId        : ℕ
-    edvKnowledge : ℕ
-    edvEvent     : ℕ
-    edvCreatedAt : ℕ
+    edvId           : ℕ
+    edvKnowledge    : ℕ
+    edvEvent        : ℕ
+    edvCreatedAt    : ℕ
+    edvEventAt      : ℕ        -- the backing event's timestamp (0 = event gone)
+    edvEventPayload : String   -- the backing event's opaque payload ("" = event gone)
 
 open EvidenceView public
 
 evidenceDec : Decoder EvidenceView
 evidenceDec =
-  field′ "id" nat        >>= λ i →
-  field′ "knowledge" nat >>= λ k →
-  field′ "event" nat     >>= λ e →
-  field′ "createdAt" nat >>= λ ca →
-  succeed (mkEvidenceView i k e ca)
+  field′ "id" nat             >>= λ i →
+  field′ "knowledge" nat      >>= λ k →
+  field′ "event" nat          >>= λ e →
+  field′ "createdAt" nat      >>= λ ca →
+  field′ "eventAt" nat        >>= λ ea →
+  field′ "eventPayload" string >>= λ ep →
+  succeed (mkEvidenceView i k e ca ea ep)
 
 evidenceListDec : Decoder (List EvidenceView)
 evidenceListDec = list evidenceDec
@@ -202,6 +206,11 @@ appointmentListDec = list appointmentDec
 -- Social reads (/v1/feed, /v1/thread, /v1/showcase — Ф1.3). Rows mirror the server's cvEnc/tvEnc:
 -- author 0 = none; locked = listed-but-not-readable teaser (payload comes STRIPPED to "").
 -- Showcase rows share the feed shape (cvEnc). payload is the author's opaque JSON.
+--
+-- PAGINATION CONTRACT (аудит-2 №14): the readers accept an optional `limit` (0 = всё) meaning
+-- "the top N" of the server ordering (newest-first / rank-asc). This is a SILENT cap — no
+-- hasMore/total comes back yet. Real pagination (cursor + continuation flag) is a deliberate
+-- follow-up contract; until then sites must treat `limit` as "показать верхушку", not as a page.
 ------------------------------------------------------------------------
 
 record ContentView : Set where

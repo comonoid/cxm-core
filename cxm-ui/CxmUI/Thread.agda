@@ -7,9 +7,11 @@
 --
 -- Site hooks (аудит №10): payload renderer is a template parameter (`threadAppWith`), pieces
 -- are PUBLIC for custom composition; `threadApp` = verbatim default. Model.limit caps the read.
+-- Reply box (аудит-2 №2): a top-level reply posts a comment anchored+parented to the root
+-- (busy-guarded, reloads the thread on success); per-node replies are site composition.
 module CxmUI.Thread where
 
-open import Data.Bool using (if_then_else_)
+open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Show using (show)
 open import Data.String using (String; _++_)
@@ -23,33 +25,45 @@ open import Agdelte.Reactive.Node
 open import CxmUI.Contract
 open import CxmUI.Client
 open import CxmUI.Text
-open import CxmUI.Widget using (errText; emptyOr; toolbar)
+open import CxmUI.Widget using (errText; emptyOr; toolbar; verbatimPayload)
 
 record Model : Set where
   constructor mkModel
   field
-    cfg    : V1Cfg
-    root   : ℕ                     -- the thread anchor (resource id)
-    limit  : ℕ                     -- page cap (0 = всё)
-    nodes  : List ThreadNodeView
-    status : String
+    cfg       : V1Cfg
+    root      : ℕ                     -- the thread anchor (resource id)
+    limit     : ℕ                     -- page cap (0 = всё)
+    nodes     : List ThreadNodeView
+    status    : String
+    replyText : String
+    busy      : Bool                  -- reply in flight
 open Model public
 
 initModel : V1Cfg → ℕ → ℕ → Model
-initModel c r lim = mkModel c r lim [] tThreadHint
+initModel c r lim = mkModel c r lim [] tThreadHint "" false
 
 data Msg : Set where
-  Load : Msg
-  Got  : Result CallErr (List ThreadNodeView) → Msg
+  Load       : Msg
+  Got        : Result CallErr (List ThreadNodeView) → Msg
+  ReplyInput : String → Msg
+  Reply      : Msg
+  GotReply   : Result CallErr ℕ → Msg
 
 updateModel : Msg → Model → Model
 updateModel Load m = record m { status = tThreadLoading }
 updateModel (Got (ok ns)) m = record m { nodes = ns ; status = emptyOr tThreadEmpty ns }
 updateModel (Got (err e)) m = record m { status = errText e }
+updateModel (ReplyInput s) m = record m { replyText = s }
+updateModel Reply m = record m { status = tReplying ; busy = true ; replyText = "" }
+updateModel (GotReply (ok _)) m = record m { busy = false }
+updateModel (GotReply (err e)) m = record m { status = errText e ; busy = false }
 
 cmdOf : Msg → Model → Cmd Msg
-cmdOf Load m = thread (cfg m) (root m) (limit m) Got
-cmdOf _    _ = ε
+cmdOf Load  m = thread (cfg m) (root m) (limit m) Got
+-- cmd видит PRE-update модель — replyText ещё не очищен
+cmdOf Reply m = commentV1 (cfg m) (root m) (root m) (replyText m) GotReply
+cmdOf (GotReply (ok _)) m = thread (cfg m) (root m) (limit m) Got   -- reload after reply
+cmdOf _     _ = ε
 
 nodeRowWith : (ContentView → Node Model Msg) → ThreadNodeView → ℕ → Node Model Msg
 nodeRowWith payloadView n _ =
@@ -63,14 +77,19 @@ nodeRowWith payloadView n _ =
     ∷ [] )
   where c = tnContent n
 
-verbatimPayload : ContentView → Node Model Msg
-verbatimPayload c = span (class "cxm-post-payload" ∷ []) [ text (cnPayload c) ]
+replyBox : Node Model Msg
+replyBox = div (class "cxm-reply" ∷ [])
+  ( input (valueBind replyText ∷ onInput ReplyInput ∷ attr "placeholder" tReplyPlaceholder
+           ∷ class "cxm-reply-input" ∷ [])
+  ∷ button (onClick Reply ∷ disabledBind busy ∷ class "cxm-reply-send" ∷ []) [ text tReply ]
+  ∷ [] )
 
 threadTemplateWith : (ContentView → Node Model Msg) → Node Model Msg
 threadTemplateWith payloadView =
   div (class "cxm-thread" ∷ [])
     ( toolbar tReload Load status
     ∷ ul [] ( foreachKeyed nodes (λ n → show (cnId (tnContent n))) (nodeRowWith payloadView) ∷ [] )
+    ∷ replyBox
     ∷ [] )
 
 threadAppWith : (ContentView → Node Model Msg) → V1Cfg → (root limit : ℕ) → ReactiveApp Model Msg
