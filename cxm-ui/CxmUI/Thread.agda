@@ -26,7 +26,7 @@ open import Agdelte.Reactive.Node
 open import CxmUI.Contract
 open import CxmUI.Client
 open import CxmUI.Text
-open import CxmUI.Widget using (errText; emptyOr; toolbar; verbatimPayload)
+open import CxmUI.Widget using (errText; emptyOr; toolbar; verbatimPayload; authorLabel)
 
 record Model : Set where
   constructor mkModel
@@ -74,7 +74,7 @@ nodeRowWith : (ContentView → Node Model Msg) → ThreadNodeView → ℕ → No
 nodeRowWith payloadView n _ =
   li (class ("cxm-thread-node cxm-depth-" ++ show (tnDepth n)
              ++ (if cnLocked c then " cxm-node-locked" else "")) ∷ [])
-    ( span (class "cxm-post-author" ∷ []) [ text (tAuthor ++ show (cnAuthor c)) ]
+    ( span (class "cxm-post-author" ∷ []) [ text (authorLabel c) ]
     ∷ span (class "cxm-post-ts" ∷ []) [ text (tTs ++ show (cnCreatedAt c)) ]
     ∷ (if cnLocked c
         then span (class "cxm-node-teaser" ∷ []) [ text tLockedReply ]

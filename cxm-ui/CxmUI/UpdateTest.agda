@@ -17,7 +17,7 @@ open import Agdelte.Core.Result using (ok; err)
 
 open import CxmUI.Contract
 open import CxmUI.Client using (mkCfg; mkV1Cfg; httpErr)
-open import CxmUI.Widget using (emptyOr)
+open import CxmUI.Widget using (emptyOr; authorLabel)
 open import CxmUI.Text using (tKindRu)
 import CxmUI.ClientCard as C
 import CxmUI.Thread as T
@@ -153,6 +153,8 @@ _ : P.nextExtId pm₁ ≡ "site-2"
 _ = refl
 _ : P.nextExtId (P.initModel (mkV1Cfg "" "" "" "") "") ≡ ""          -- без префикса — без коррел.
 _ = refl
+_ : P.nextExtId (P.updateModel (P.Bought (err (httpErr "x"))) pm₁) ≡ "site-2"
+_ = refl   -- номер съеден и при ошибке — дырки в нумерации допустимы, коллизии нет
 _ : P.lastPayment (P.updateModel (P.Bought (ok 95)) pm₁) ≡ 95
 _ = refl
 _ : P.busy (P.updateModel (P.Bought (ok 95)) pm₁) ≡ false
@@ -165,4 +167,13 @@ _ = refl
 _ : emptyOr {A = String} "пусто" [] ≡ "пусто"
 _ = refl
 _ : emptyOr "пусто" ("x" ∷ []) ≡ ""
+_ = refl
+
+------------------------------------------------------------------------
+-- Widget.authorLabel (аудит-4 №2): серверное имя, фолбэк «автор #id»
+------------------------------------------------------------------------
+
+_ : authorLabel (mkContentView 5 19 "" 0 false "{}") ≡ "автор #19"
+_ = refl
+_ : authorLabel (mkContentView 5 19 "Мария К." 0 false "{}") ≡ "Мария К."
 _ = refl

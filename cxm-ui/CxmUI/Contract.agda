@@ -161,6 +161,28 @@ evidenceListDec : Decoder (List EvidenceView)
 evidenceListDec = list evidenceDec
 
 ------------------------------------------------------------------------
+-- Integration tokens (GET /integration-tokens) — the owner's token list (аудит-4 №3)
+------------------------------------------------------------------------
+
+record IntTokenView : Set where
+  constructor mkIntTokenView
+  field
+    itId      : ℕ
+    itScope   : String
+    itRevoked : Bool
+open IntTokenView public
+
+intTokenDec : Decoder IntTokenView
+intTokenDec =
+  field′ "id" nat        >>= λ i →
+  field′ "scope" string  >>= λ s →
+  field′ "revoked" bool  >>= λ r →
+  succeed (mkIntTokenView i s r)
+
+intTokenListDec : Decoder (List IntTokenView)
+intTokenListDec = list intTokenDec
+
+------------------------------------------------------------------------
 -- Outbox (GET /outbox) — the operator's delivery ops-view (pending/sent/failed mail)
 ------------------------------------------------------------------------
 
@@ -238,21 +260,23 @@ appointmentListDec = list appointmentDec
 record ContentView : Set where
   constructor mkContentView
   field
-    cnId        : ℕ
-    cnAuthor    : ℕ        -- 0 = none
-    cnCreatedAt : ℕ
-    cnLocked    : Bool     -- true → teaser: payload = ""
-    cnPayload   : String   -- opaque author JSON ("" when locked)
+    cnId         : ℕ
+    cnAuthor     : ℕ        -- 0 = none
+    cnAuthorName : String   -- display name, server-joined ("" = none/erased) — аудит-4 №2
+    cnCreatedAt  : ℕ
+    cnLocked     : Bool     -- true → teaser: payload = ""
+    cnPayload    : String   -- opaque author JSON ("" when locked)
 open ContentView public
 
 contentDec : Decoder ContentView
 contentDec =
-  field′ "id" nat         >>= λ i →
-  field′ "author" nat     >>= λ a →
-  field′ "createdAt" nat  >>= λ ca →
-  field′ "locked" bool    >>= λ l →
-  field′ "payload" string >>= λ p →
-  succeed (mkContentView i a ca l p)
+  field′ "id" nat            >>= λ i →
+  field′ "author" nat        >>= λ a →
+  field′ "authorName" string >>= λ an →
+  field′ "createdAt" nat     >>= λ ca →
+  field′ "locked" bool       >>= λ l →
+  field′ "payload" string    >>= λ p →
+  succeed (mkContentView i a an ca l p)
 
 contentListDec : Decoder (List ContentView)
 contentListDec = list contentDec

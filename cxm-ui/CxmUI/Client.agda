@@ -341,6 +341,8 @@ createExpectation : ∀ {M : Set} → Cfg → (subject : ℕ) (topic : String) (
                     → (Result CallErr ℕ → M) → Cmd M
 createExpectation cfg sid topic lvl = postJson cfg "/expectations" (expectationBody sid topic lvl) idDec
 
+-- ⚠ `resource` — id бронируемого ресурса; ЧИТАЛКИ bookable-ресурсов на сервере пока НЕТ
+-- (аудит-4 №4) — id приходит из внешней конфигурации сайта, пока сервер не отрастит листинг.
 bookAppointment : ∀ {M : Set} → Cfg → (subject resource start duration : ℕ)
                   → (Result CallErr ℕ → M) → Cmd M
 bookAppointment cfg sid res st dur = postJson cfg "/appointments" (appointmentBody sid res st dur) idDec
@@ -374,6 +376,10 @@ mintedDec = field′ "id" nat >>= λ i → field′ "token" string >>= λ t → 
 
 mintIntegrationToken : ∀ {M : Set} → Cfg → (origin : String) → (Result CallErr MintedToken → M) → Cmd M
 mintIntegrationToken cfg origin = postJson cfg "/integration-tokens" (mintBody origin) mintedDec
+
+-- аудит-4 №3: сам токен показывается ТОЛЬКО при минте; список — id/scope/revoked
+listIntegrationTokens : ∀ {M : Set} → Cfg → (Result CallErr (List IntTokenView) → M) → Cmd M
+listIntegrationTokens cfg = getJson cfg "/integration-tokens" intTokenListDec
 
 revokeIntegrationToken : ∀ {M : Set} → Cfg → (tokenId : ℕ) → (Result CallErr ⊤ → M) → Cmd M
 revokeIntegrationToken cfg tid = postUnit cfg "/integration-tokens/revoke" (idBody "id" tid)
@@ -464,6 +470,9 @@ commentExtra anchor parent vis lst payload =
 followExtra : (targetChannel targetId : String) → String
 followExtra tch tid = "," ++ kv "target_channel" (q tch) ++ "," ++ kv "target_id" (q tid)
 
+eventExtra : (payload : String) → String
+eventExtra payload = "," ++ kv "payload" (q payload)
+
 private
   postV1 : ∀ {A M : Set} → V1Cfg → String → String → Decoder A → (Result CallErr A → M) → Cmd M
   postV1 c path extra dec k =
@@ -515,6 +524,11 @@ commentV1 c anchor parent vis lst payload =
 
 followV1 : ∀ {M : Set} → V1Cfg → (targetChannel targetId : String) → (Result CallErr ℕ → M) → Cmd M
 followV1 c tch tid = postV1 c "/v1/follow" (followExtra tch tid) idDec
+
+-- аудит-4 №1: поведенческий ingest — сайт кормит experience OS (просмотры/действия зрителя);
+-- payload — opaque JSON сайта, сервер заворачивает в ExperienceEvent (View/Integration).
+ingestEvent : ∀ {M : Set} → V1Cfg → (payload : String) → (Result CallErr ℕ → M) → Cmd M
+ingestEvent c payload = postV1 c "/v1/events" (eventExtra payload) idDec
 
 mergeSession : ∀ {M : Set} → V1Cfg → (provisional : ℕ) → (Result CallErr ⊤ → M) → Cmd M
 mergeSession c prov = postV1Unit c "/v1/merge-session" (optNat "provisional" prov)

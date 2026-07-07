@@ -49,6 +49,13 @@ communityFeed = feedApp (mkV1Cfg "" itok "cookie" sid) -- /v1: свой auth, н
   переиспользовать в своих обёртках; Cmd-биндинги — однострочники поверх них.
 - **limit** (feed/thread/showcase): 0 = всё; N = верхушка серверного порядка. Это «тихий
   срез» без hasMore — настоящая пагинация (курсор) будет отдельным контрактом.
+- **JWT живёт сутки** (server TTL) и заморожен в `Cfg` при маунте: refresh-роута нет. Паттерн:
+  сайт ловит `serverErr` с кодом `unauthorized` (при embedding — в своём `update`; при готовых
+  виджетах — по статус-строке «сервер: unauthorized»), перелогинивается и перемонтирует виджеты.
+- **Границы слоя (осознанно НЕ биндится):** админ-поверхность — `/payments/succeed` (вебхук
+  платёжного провайдера), `/credit`, `/auth/users` (admin:use) — им не место в сайт-слое.
+  `bookAppointment.resource` — id бронируемого ресурса приходит из конфигурации сайта: читалки
+  bookable-ресурсов на сервере пока нет.
 - **CSS**: виджеты бренд-нейтральны, стилизуются по контрактным классам `cxm-*`
   (toolbar/load/status; post/…-locked/…-teaser; thread-node/depth-N; know/badge-<type>/
   status-<status>/conf/rev-*; ws-panel; exp-<status>; offer/buy; edit-detail; evidence-panel;

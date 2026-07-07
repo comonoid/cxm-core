@@ -82,6 +82,15 @@ $('login-form').addEventListener('submit', async (e) => {
   }
 });
 
+// регистрация владельца (аудит-4 №9): свежая scratch-БД без единого юзера — тупик без этого
+$('reg-btn').addEventListener('click', async () => {
+  const r = await fetch('/auth/register', { method: 'POST',
+    body: JSON.stringify({ login: $('lg').value, password: $('pw').value, name: $('lg').value }) });
+  const j = await r.json().catch(() => ({}));
+  $('whoami').textContent = j.data?.id ? `зарегистрирован #${j.data.id} — теперь «Войти»`
+                                       : 'регистрация: ' + (j.error?.code || r.status);
+});
+
 const nav = $('catalog');
 for (const w of WIDGETS) {
   const b = document.createElement('button');

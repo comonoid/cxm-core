@@ -16,7 +16,8 @@ open import Data.List using (List; []; _∷_; [_])
 
 open import Agdelte.Reactive.Node
 
-open import CxmUI.Contract using (ContentView; cnPayload)
+open import Agda.Builtin.String using (primStringEquality)
+open import CxmUI.Contract using (ContentView; cnPayload; cnAuthor; cnAuthorName)
 open import CxmUI.Client using (CallErr; httpErr; serverErr; decodeErr; aeCode)
 open import CxmUI.Text
 
@@ -47,3 +48,10 @@ toolbar label msg status =
 -- a site swaps it via the `*AppWith` builders.
 verbatimPayload : ∀ {Model Msg : Set} → ContentView → Node Model Msg
 verbatimPayload c = span (class "cxm-post-payload" ∷ []) [ text (cnPayload c) ]
+
+-- author line of a social row: the server-joined display name, «автор #id» as the fallback
+-- (no author resolved / erased subject) — аудит-4 №2
+authorLabel : ContentView → String
+authorLabel c = if primStringEquality (cnAuthorName c) ""
+                  then tAuthor ++ show (cnAuthor c)
+                  else cnAuthorName c

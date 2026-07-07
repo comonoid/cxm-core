@@ -223,6 +223,23 @@
 - **Мелочи:** refl-тесты AddObs/Reply-guard/busy + `tKindRu`; юнит на `mintedDec` и
   `outboxListDec`; README про body-билдеры.
 
+## Аудит-4 2026-07-07 — ВСЕ находки закрыты (смоук 28/28, юнит 11+27, refl)
+- **№2 (главное):** соц-строки несут **authorName** — сервер джойнит `sDisplayName` в
+  cvEnc/tvEnc (`nameLookup` по scan tcSubject; "" = безымянный/стёртый), `ContentView` расширен,
+  `Widget.authorLabel` (имя, фолбэк «автор #id») во всех трёх виджетах; live: у /v1-авторов имя
+  честно пустое (auto-provision) — обе ветки покрыты refl+юнитом.
+- **№1:** `ingestEvent` (/v1/events) — поведенческий ingest биндед (+`eventExtra`, тест тела).
+- **№3:** `listIntegrationTokens` (+`IntTokenView`) — владелец видит свои токены.
+- **№4:** `bookAppointment` — честный докстринг + README: читалки bookable-ресурсов на сервере
+  нет, id из конфигурации сайта.
+- **№5–6 (README):** админ-поверхность (/payments/succeed, /credit, /auth/users) — осознанная
+  граница слоя; паттерн протухания JWT (суточный TTL, ловить unauthorized → перелогин+ремаунт).
+- **№7:** подозрение на дыру снято — commentOnV гейтит недоступный якорь (anchorParticipantV →
+  Forbidden); reply-box при недоступном треде даёт человеческое «сервер: forbidden».
+- **№9:** харнесс — кнопка «Регистрация» (свежая scratch-БД больше не тупик).
+- **№8/№10 (мелочи):** юнит на verifyIdentity-конверт и intTokenListDec; refl «Buy при ошибке
+  съедает номер ext_id»; кросс-реф на cxm-ui/README.md в docs/MODULES.md.
+
 ## Заметки / решения по ходу
 - Ф2.3-хвост ЗАКРЫТ (2026-07-07): `Client.reviseKnowledgeBy` (amount) + кнопки «▲ +50»/«▼ −50»
   (фикс-шаг вместо ввода числа) + **redetail-форма** («✎ детали» → преднаполненный input →

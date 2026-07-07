@@ -11,6 +11,10 @@
 
 ---
 
+> **Фронт-слой (cxm-ui):** контракт-привязанные виджеты и типизированный HTTP-клиент живут в
+> отдельной либе `~/cxm-core/cxm-ui/` (depend: stdlib+agdelte, Agda-ядро НЕ импортирует — страж
+> G4 в check-layering.sh). Карта модулей и API для авторов сайтов: `cxm-ui/README.md`.
+
 > **★ POSTGRES-ONLY (2026-07-07).** WAL + in-memory движок УДАЛЁН (`Cxm.Commands`/`Txn`/`Api`/
 > `Worker`/`Store.Interface`/`Store.Wal`/`Store.Codec`/`Store.Tx2`/`Store.VerbsBase` + generic
 > `IndexedMap`/`NatMap`/`WAL`/`Txn`). Стор — типизированный EDSL, компилирующийся в SQL. Команды

@@ -75,12 +75,20 @@ test('envelopeUnit error ({"error":…} → serverErr)', () => {
 const CN = Contract.ContentView, TN = Contract.ThreadNodeView;
 const B = (b) => b; // Bool → native JS bool under --js
 
-test('envelope + contentListDec (/v1/feed: open post + locked teaser)', () => {
+test('envelope + contentListDec (/v1/feed: open post + locked teaser + authorName)', () => {
   const xs = envOk(Contract.contentListDec, fx['POST /v1/feed']);
   eq(xs.length, 2);
   eq(N(CN.cnId(xs[0])), 21); eq(N(CN.cnAuthor(xs[0])), 19); eq(B(CN.cnLocked(xs[0])), false);
+  eq(CN.cnAuthorName(xs[0]), '', 'v1-авторы auto-provisioned без имени');
   eq(CN.cnPayload(xs[0]), '{"text":"Привет, лента!"}');
   eq(B(CN.cnLocked(xs[1])), true); eq(CN.cnPayload(xs[1]), '', 'locked teaser must come stripped');
+});
+
+test('contentDec (authorName server-joined, непустой случай)', () => {
+  const r = matchResult(JsonMod.decodeString(null)(Contract.contentDec)(
+    '{"id":5,"author":9,"authorName":"Мария К.","createdAt":1,"locked":false,"payload":"{}"}'));
+  if (r.tag !== 'ok') throw new Error('decode failed');
+  eq(CN.cnAuthorName(r.value), 'Мария К.');
 });
 
 test('envelope + threadListDec (/v1/thread: root + reply at depth 1)', () => {
@@ -197,12 +205,25 @@ test('bodies: /v1 (identity-конверт + extras, опциональные п
   eq(o.visibility, 'private'); eq(o.listing, 'public');   // locked-реплика доступна биндингу
   o = jb(Client.v1Body(cfg)(Client.followExtra('user_id')('author-1')));
   eq(o.target_channel, 'user_id'); eq(o.target_id, 'author-1');
+  o = jb(Client.v1Body(cfg)(Client.eventExtra('{"page":"/pricing"}')));   // аудит-4 №1
+  eq(o.payload, '{"page":"/pricing"}'); eq(o.identity_channel, 'cookie');
 });
 
 test('mintedDec ({"data":{"id","token"}} — форма okJson-обёртки минта)', () => {
   const MT = Client.MintedToken;
   const v = envOk(Client.mintedDec, { data: { id: 18, token: 'SHK5=' } });
   eq(N(MT.mtId(v)), 18); eq(MT.mtToken(v), 'SHK5=');
+});
+
+test('envelope + intTokenListDec (GET /integration-tokens — форма listTokens-энкодера)', () => {
+  const IT = Contract.IntTokenView;
+  const xs = envOk(Contract.intTokenListDec, { data: [{ id: 18, scope: '/v1', revoked: false }] });
+  eq(N(IT.itId(xs[0])), 18); eq(IT.itScope(xs[0]), '/v1'); eq(IT.itRevoked(xs[0]), false);
+});
+
+test('verifyIdentity-конверт ({"data":{"verified":true}})', () => {
+  const dec = JsonMod['field′'](null)('verified')(JsonMod.bool);
+  eq(envOk(dec, { data: { verified: true } }), true);
 });
 
 test('envelope + outboxListDec (GET /outbox — ops-вид доставки)', () => {

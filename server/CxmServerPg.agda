@@ -378,9 +378,16 @@ private
 
   -- cxm-ui Ф1.3: feed/showcase rows carry author (0 = none) + createdAt — a feed item without
   -- author/time is unrenderable. Payload stays stripped when locked (teaser = chrome only).
-  cvEnc : ContentView → String
-  cvEnc cv = "{\"id\":" <> show (rId (cvResource cv))
+  -- аудит-4 №2: rows are JOINED with the author's display name ("" = none/erased) — «автор #19»
+  -- в ленте нежизнеспособен, а другого пути отрезолвить имя у сайта нет.
+  nameLookup : List (ℕ × Subject) → ℕ → String
+  nameLookup [] _ = ""
+  nameLookup ((i , s) ∷ rest) a = if i ≡ᵇ a then sDisplayName s else nameLookup rest a
+
+  cvEnc : (ℕ → String) → ContentView → String
+  cvEnc nameOf cv = "{\"id\":" <> show (rId (cvResource cv))
              <> ",\"author\":" <> show (maybe′ (λ a → a) 0 (rAuthor (cvResource cv)))
+             <> ",\"authorName\":" <> str (maybe′ nameOf "" (rAuthor (cvResource cv)))
              <> ",\"createdAt\":" <> show (rCreatedAt (cvResource cv))
              <> ",\"locked\":" <> (if cvLocked cv then "true" else "false")
              <> ",\"payload\":" <> str (if cvLocked cv then "" else rPayload (cvResource cv)) <> "}"
@@ -388,20 +395,24 @@ private
   readFeed : (now viewer lim : ℕ) → Tx String
   readFeed now viewer lim =
     vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens → vals tcResource >>=T λ rs →
-    returnT ("[" <> joinComma (map cvEnc (capL lim (feedViews now viewer es ens rs))) <> "]")
+    scan tcSubject >>=T λ subs →
+    returnT ("[" <> joinComma (map (cvEnc (nameLookup subs)) (capL lim (feedViews now viewer es ens rs))) <> "]")
 
   readShowcase : (now viewer from lim : ℕ) → Tx String
   readShowcase now viewer from lim =
     vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens →
     vals tcResourceLink >>=T λ ls → vals tcResource >>=T λ rs →
-    returnT ("[" <> joinComma (map cvEnc (capL lim (showcaseViews now (mV viewer) es ens ls from rs))) <> "]")
+    scan tcSubject >>=T λ subs →
+    returnT ("[" <> joinComma (map (cvEnc (nameLookup subs))
+                                   (capL lim (showcaseViews now (mV viewer) es ens ls from rs))) <> "]")
     where mV : ℕ → Maybe ℕ
           mV 0 = nothing
           mV n = just n
 
-  tvEnc : ThreadView → String
-  tvEnc tv = "{\"depth\":" <> show (tvDepth tv) <> ",\"id\":" <> show (rId (tvResource tv))
+  tvEnc : (ℕ → String) → ThreadView → String
+  tvEnc nameOf tv = "{\"depth\":" <> show (tvDepth tv) <> ",\"id\":" <> show (rId (tvResource tv))
              <> ",\"author\":" <> show (maybe′ (λ a → a) 0 (rAuthor (tvResource tv)))
+             <> ",\"authorName\":" <> str (maybe′ nameOf "" (rAuthor (tvResource tv)))
              <> ",\"createdAt\":" <> show (rCreatedAt (tvResource tv))
              <> ",\"locked\":" <> (if tvLocked tv then "true" else "false")
              <> ",\"payload\":" <> str (if tvLocked tv then "" else rPayload (tvResource tv)) <> "}"
@@ -409,7 +420,9 @@ private
   readThread : (now viewer root lim : ℕ) → Tx String
   readThread now viewer root lim =
     vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens → vals tcResource >>=T λ rs →
-    returnT ("[" <> joinComma (map tvEnc (capL lim (threadViews now (mV viewer) es ens root rs))) <> "]")
+    scan tcSubject >>=T λ subs →
+    returnT ("[" <> joinComma (map (tvEnc (nameLookup subs))
+                                   (capL lim (threadViews now (mV viewer) es ens root rs))) <> "]")
     where mV : ℕ → Maybe ℕ
           mV 0 = nothing
           mV n = just n
