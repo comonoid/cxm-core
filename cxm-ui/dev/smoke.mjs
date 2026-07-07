@@ -101,5 +101,27 @@ const locked = feedStage.querySelector('.cxm-post-locked');
 ok(locked && locked.textContent.includes('🔒') && !locked.textContent.includes('секрет'),
    'лента: locked-пост — тизер-хром, payload зачищен');
 
+// ── Ф3.2: тред (корень + ответ с parent, вкл. приватную реплику) ────────────
+const Thread = (await import('../_build/jAgda.CxmUI.Thread.mjs')).default;
+const rootId = (await v1('/v1/publish',
+  { ...idOf('user_id', 'smoke-author'), payload: '{"text":"корень треда"}' })).data.id;
+await v1('/v1/comment', { ...idOf('user_id', 'smoke-viewer'), anchor_kind: 'resource',
+  anchor_id: rootId, parent: rootId, payload: '{"text":"публичный ответ"}' });
+await v1('/v1/comment', { ...idOf('user_id', 'smoke-author'), anchor_kind: 'resource',
+  anchor_id: rootId, parent: rootId, visibility: 'private', listing: 'public',
+  payload: '{"text":"приватная реплика"}' });
+
+const thStage = document.createElement('div');
+document.body.appendChild(thStage);
+await runReactiveApp({ app: Thread.threadApp(v1cfg)(BigInt(rootId)) }, thStage);
+thStage.querySelector('.cxm-load').click();
+await until(() => thStage.querySelectorAll('.cxm-thread-node').length >= 3, 'тред загрузился');
+ok(thStage.querySelector('.cxm-depth-0')?.textContent.includes('корень треда'), 'тред: корень на depth-0');
+ok([...thStage.querySelectorAll('.cxm-depth-1')].some((n) => n.textContent.includes('публичный ответ')),
+   'тред: ответ на depth-1');
+const lockedNode = thStage.querySelector('.cxm-node-locked');
+ok(lockedNode && lockedNode.textContent.includes('🔒') && !lockedNode.textContent.includes('приватная'),
+   'тред: закрытая реплика — тизер-стрип, payload зачищен');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
