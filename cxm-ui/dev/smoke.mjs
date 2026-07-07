@@ -61,6 +61,12 @@ await runReactiveApp({ app: Card.clientCardApp(cfg) }, stage);
 
 ok(stage.querySelector('.cxm-client-card'), 'виджет смонтирован (cxm-client-card в DOM)');
 
+// аудит-6 №3: МЕХАНИЧЕСКАЯ сверка версии контракта — живой сервер против ожидания cxm-ui
+const Contract = (await import('../_build/jAgda.CxmUI.Contract.mjs')).default;
+const hlth = await (await fetch(API + '/health')).json();
+ok(BigInt(hlth.contract) === Contract.expectedContract,
+   `contract-версия: live ${hlth.contract} === expected ${Contract.expectedContract} (дрейф бы завалил смоук)`);
+
 stage.querySelector('.cxm-load').click();
 await until(() => stage.querySelectorAll('.cxm-roster-btn').length > 0, 'ростер загрузился');
 const btn = [...stage.querySelectorAll('.cxm-roster-btn')].find((b) => b.textContent === NAME);

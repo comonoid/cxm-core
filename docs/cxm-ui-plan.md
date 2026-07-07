@@ -4,6 +4,13 @@
 > Слой контракт-привязанных виджетов CXM. Говорит по HTTP/JSON с `cxm-server-pg`, зависит от
 > `agdelte` (не от Agda-ядра `cxm`). См. [[cxm-frontend-layering]], `docs/pg-store-plan.md`.
 
+## ★ ИТОГ (2026-07-07): план ЗАВЕРШЁН, шесть аудитов закрыты
+Слой готов под П4: 5 виджетов + типизированный клиент на ВСЕ 49 роутов сервера, body-билдеры и
+update-логика — чистые и покрыты refl/юнитами, e2e — живой смоук (`npm run test:smoke`), версия
+контракта сверяется механически (/health.contract ↔ expectedContract). Для авторов сайтов —
+**`cxm-ui/README.md`** (quick start, хуки, embedding, CSS-классы). Секции ниже — хронология
+(Ф0–Ф4) и находки аудитов; «Контекст» под этой строкой — снимок 2026-07-03, НЕ текущее состояние.
+
 ## Контекст (что уже стоит, 2026-07-03)
 - `cxm-ui/` — либа (`cxm-ui.agda-lib`, depend stdlib+agdelte), `package.json` (`agda --js` + node-тест).
 - `CxmUI/Contract.agda` — 7 view-типов + декодеры (Knowledge/Profile/Expectation/Experience/Episode/
@@ -257,6 +264,27 @@
   горячие риды → query-EDSL (план pg-store), долг вырос осознанно.
 - **№6–8 (мелочи):** showAmount — докстринг про 100 minor units (JPY/KWD → параметризация);
   харнесс-промпты без магических id; refl-пакет стейл-write.
+
+## Аудит-6 2026-07-07 — ВСЕ находки закрыты (смоук 29/29; agdelte +10 регрессионных)
+- **№1 (баг):** харнесс звал несуществующий `handle.unmount` (API рантайма — `destroy`) —
+  переключение виджетов текло (rAF-циклы/подписки старых приложений); однострочный фикс.
+- **№2 (системное):** четыре рантайм-фикса agdelte теперь защищены В САМОМ agdelte:
+  `examples/RuntimeFixesProbe.agda` + `test/runtime-fixes.test.js` (10 тестов: deepEqual
+  объектная Scott-форма/массивы, agdaHeadersToObj обе кодировки пар, foreachKeyed re-render
+  при смене item под тем же ключом, controlled-input intra-batch round-trip, тело non-2xx
+  в onErr + заголовки насквозь); `npm run test:runtime-fixes`, включён в test:all.
+- **№3:** смоук МЕХАНИЧЕСКИ сверяет contract-версию: live /health.contract ===
+  Contract.expectedContract (дрейф валит смоук, а не пользователя).
+- **№4:** dev/serve.mjs отдаёт статику с Cache-Control: no-store (пересобранный .mjs доезжает
+  до браузера, не до кеша).
+- **№5:** шапка плана — актуальная сводка (★ ИТОГ) над историческим «Контекстом».
+- **★ Побочная находка №2:** в agdelte/_build жил ПРОТУХШИЙ jAgda.Agdelte.Json.mjs — маскировал
+  рассинхрон: прагмы encodeList/encodeMaybe БЕЗ тип-слотов, а json.test (и конвенция Agda→JS)
+  со слотами. Пересборка вскрыла; слоты добавлены (закрыта давняя заметка «encoders
+  Agda→JS-непригодны»), json 32/32; заодно вычищен NameId-дрейф смешанной компиляции
+  (Integer/Consequences). Урок: общий _build без пересборки от корня копит ложь.
+- Проверено чисто: комментарий к несуществующему якорю отбивается (requireAnchorV);
+  _build не в гите; смоук самодостаточен.
 
 ## Заметки / решения по ходу
 - Ф2.3-хвост ЗАКРЫТ (2026-07-07): `Client.reviseKnowledgeBy` (amount) + кнопки «▲ +50»/«▼ −50»

@@ -58,7 +58,7 @@ async function mount(w) {
   for (const b of document.querySelectorAll('#catalog button'))
     b.classList.toggle('active', b.dataset.id === w.id);
   const stage = $('stage');
-  if (handle && handle.unmount) handle.unmount();
+  if (handle && handle.destroy) handle.destroy();   // аудит-6 №1: API рантайма — destroy
   stage.replaceChildren();
   if (!jwt) { stage.innerHTML = '<p class="hint">сначала войди — виджетам нужен Bearer</p>'; return; }
   const [mod, client] = await Promise.all([

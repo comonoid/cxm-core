@@ -34,7 +34,9 @@ createServer(async (req, res) => {
     if (!file.startsWith(mount[1])) { res.writeHead(403); return res.end(); }
     try {
       const body = await readFile(file);
-      res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
+      // no-store (аудит-6 №4): пересобранный .mjs обязан доехать до браузера, не до кеша
+      res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream',
+                           'cache-control': 'no-store' });
       return res.end(body);
     } catch { res.writeHead(404); return res.end('not found: ' + path); }
   }
