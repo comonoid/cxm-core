@@ -26,9 +26,26 @@
 ---
 
 ## Ф0. Ре-базлайн скаффолда
-- [ ] 0.1 Собрать `agda --js CxmUI/Contract.agda` + `npm run test:contract` — зафиксировать зелёный старт на текущем фреймворке
-- [ ] 0.2 Снять свежие golden-фикстуры реального JSON с живого `cxm-server-pg` (scratch) по всей текущей поверхности
-- [ ] 0.3 Выверить `Contract.agda` против фактических форм ответов; добить недостающие view-типы (Social/ContentView/ThreadView/ShowcaseView, Promise/Account/Payment, RBAC-профиль)
+- [x] 0.1 Собрать `agda --js CxmUI/Contract.agda` + `npm run test:contract` — зелёный старт (9/9 ✓)
+- [x] 0.2 Снять фикстуры реального JSON с живого `cxm-server-pg` → `cxm-ui/test/fixtures/reads.json`
+- [x] 0.3 Выверка `Contract.agda` против факта — **★ НАХОДКА: read-поверхность сервера БЕДНАЯ.**
+      - read-эндпойнтов меньше, чем думал контракт: **НЕТ** `/profile`, `/episodes/by-subject`,
+        `/expectations/by-subject` (они были под WAL-сервер) → `profileDec`/`episodeDec` пока «в воздухе».
+      - существующие reads возвращают ОБРЕЗАННЫЕ view: `/subjects`→`{id,name}`, **`/knowledge/by-subject`→
+        `{detail}` только** (энкодер `enc k = {"detail":…}` — тип/статус/уверенность отброшены),
+        `/appointments/by-subject`→`{id,start,duration,status}`. Rich-view-типы контракта (эпист-бейджи!)
+        серверу пока НЕ соответствуют.
+      - **Вывод:** кабинетные виджеты (Ф2, особенно блокнот с бейджами и карточка с эпизодами)
+        ЗАБЛОКИРОВАНЫ бедным read-слоем сервера. Нужна Ф0.4 ↓ (это правка `cxm-server-pg`, не cxm-ui).
+
+## Ф0.4. Обогащение read-поверхности сервера (ПРЕРЕКВИЗИТ Ф2; это работа в `cxm-server-pg`)
+- [ ] 0.4.1 `listKnowledge`-энкодер → полный KnowledgeView (id/subject/type/status/confidence/validFrom/
+      validTo/decay/detail/episode) — питает блокнот+бейджи
+- [ ] 0.4.2 Добавить `POST /episodes/by-subject` (нужен карточке клиента) + EpisodeView-энкодер
+- [ ] 0.4.3 Добавить `POST /expectations/by-subject` (нужен expectation-gap) + ExpectationView-энкодер
+- [ ] 0.4.4 (опц.) обогатить `/subjects` или добавить `POST /subjects/get` до нужных карточке полей;
+      (опц.) `/profile`-агрегат, если решим агрегировать на сервере
+- [ ] 0.4.5 Перезаснять фикстуры с обогащённого сервера; выверить/поправить декодеры Contract.agda → зелёный contract-тест
 
 ## Ф1. Типизированный API-клиент (`CxmUI/Client.agda` + под-модули)
 - [ ] 1.1 `auth`: register/login → JWT; authed-хелпер (`httpPostH` + Bearer); обработка 401/403/409

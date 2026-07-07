@@ -1,0 +1,8 @@
+{
+  "_note": "REAL cxm-server-pg wave-1 read responses (captured 2026-07-07). These are the CURRENT shapes — thinner than CxmUI.Contract views. See docs/cxm-ui-plan.md Ф0.3/Ф0.4.",
+  "GET /subjects":                 {"data":[{"id":4,"name":"Клиент Анна 😀"}]},
+  "POST /knowledge/by-subject":    {"data":[{"detail":"{\"kind\":\"work_strategy\",\"sync\":false}"}]},
+  "POST /appointments/by-subject": {"data":[{"id":6,"start":5000,"duration":60,"status":"scheduled"}]},
+  "GET /outbox":                   {"data":[]},
+  "GET /integration-tokens":       {"data":[]}
+}
