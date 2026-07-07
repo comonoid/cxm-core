@@ -30,7 +30,7 @@ open import Agdelte.Storage.PgConn using (TxRunner; connectPerTxn; withConnRaw; 
 
 open import Cxm.Store.Base using
   ( Err; NotFound; Conflict; Insufficient; InvalidTransition; Forbidden; Invariant
-  ; outByStatus; busByProcessed )
+  ; outByStatus; busByProcessed; knowBySubject )
 open import Cxm.Store.Verbs
 open import Cxm.Store.Pg using (runCxmTx)
 open import Cxm.Store.Registry using (dumps; dName; cxmHistory)
@@ -43,7 +43,7 @@ open import Cxm.Appointment using (apStatus; ApptStatus; ApScheduled; ApCanceled
 open import Cxm.Account using (acBalance)
 open import Cxm.Bus using (mkEvent; evProcessed)
 open import Cxm.Expectation using (Ours)
-open import Cxm.Event using (mkExperienceEvent; Web; Client; View; eePayload)
+open import Cxm.Event using (mkExperienceEvent; Web; Client; View; FeatureRequest; eePayload)
 
 ------------------------------------------------------------------------
 -- Rendering (both sides reduce to a comparable String)
@@ -151,6 +151,26 @@ private
     returnT ("dispatched=" <> show n <> ";processed="
              <> maybe′ (λ e → shB (evProcessed e)) "?" me)
 
+  -- rebuildInference: ingest a FeatureRequest → rebuild derives one "unmet-need" hypothesis;
+  -- rebuild AGAIN must clear-and-re-derive (idempotent) → still exactly one (a broken clear would
+  -- show two on PG). Result is order-independent (single hypothesis).
+  sRebuild : Tx String
+  sRebuild =
+    resolveOrCreateSubjectV "email" "r@x" "Cli" "UTC" 1 6 >>=T λ s →
+    ingestSiteEventV "email" "r@x" 1 7
+      (mkExperienceEvent 0 0 1 Web Client 7 FeatureRequest 0 nothing nothing nothing nothing
+        false false "p" nothing) >>=T λ _ →
+    rebuildInferenceV s 1 >>T
+    rebuildInferenceV s 1 >>T
+    byIx tcKnowledge knowBySubject s >>=T λ kids →
+    detailsOf kids >>=T λ ds →
+    returnT ("hyps=" <> show (length kids) <> ";d=" <> ds)
+    where
+      detailsOf : List ℕ → Tx String
+      detailsOf []       = returnT ""
+      detailsOf (i ∷ is) = get tcKnowledge i >>=T λ mk →
+        detailsOf is >>=T λ r → returnT (maybe′ kDetail "?" mk <> r)
+
   scenarios : List (String × Tx String)
   scenarios =
       ("identity-bind-verify-notify" , sIdentity)
@@ -160,6 +180,7 @@ private
     ∷ ("gdpr-erase"                  , sGdpr)
     ∷ ("charge-insufficient-abort"   , sAbort)
     ∷ ("bus-dispatch-bool-index"     , sBus)      -- G2 regression net (CBool index → TRUE/FALSE)
+    ∷ ("inference-rebuild-idempotent" , sRebuild)  -- verb-port of WAL rebuildHypotheses
     ∷ []
 
 ------------------------------------------------------------------------

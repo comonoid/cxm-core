@@ -7,7 +7,8 @@
 -- (CxmServer) keeps running until the катовер — this binary is stood up NEXT TO it.
 --
 -- Wave 1 surface (live-smoke set): /health, /auth/{register,login}, /subjects (POST/GET),
--- /identities (bind+verify-mail, ONE atom), /verify-identity (public), /knowledge (+by-subject),
+-- /identities (bind+verify-mail, ONE atom), /verify-identity (public), /knowledge (+by-subject,
+-- +evidence, +rebuild-inference: re-derive a subject's ACTIVE hypotheses from its event log),
 -- /notifications (verified-recipient guard), /outbox; PG worker loop (outbox/reminders/bus).
 -- Next waves: RBAC-authz port, /v1 site surface, social, query/decision, psych pack, transports.
 module CxmServerPg where
@@ -405,6 +406,8 @@ private
       runW run (listKnowledge ct (natOr req "subject" 0)) okJson
     else if is m "POST" ∧ is p "/knowledge/evidence" then
       runW run (attachEvidenceV (natOr req "knowledge" 0) (natOr req "event" 0) ct now) idJson
+    else if is m "POST" ∧ is p "/knowledge/rebuild-inference" then
+      runW run (rebuildInferenceV (natOr req "subject" 0) ct) okUnit
     else if is m "POST" ∧ is p "/subjects/delete" then
       runW run (cascadeDeleteSubjectV (natOr req "id" 0) ct) okUnit
     else if is m "POST" ∧ is p "/subjects/erase" then

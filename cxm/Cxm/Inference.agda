@@ -106,6 +106,6 @@ inferHypotheses evs = dedupBy [] (foldr (λ ev acc → ruleOf ev ++ acc) [] evs)
 
 -- NB: this module stays PURE — its whole point is that inference is a deterministic function of
 -- the event log, so the projection rebuilds from scratch (§4.16, §8.3). The WAL Txn wrapper
--- `rebuildHypotheses` was removed with the WAL backend (Postgres-only, 2026-07-07); a verb-world
--- port (`rebuildInferenceV` over Cxm.Store.Verbs: scan+del ACTIVE hyps → re-derive via
--- `inferHypotheses`) is a KNOWN post-cutover gap — the PG cabinet never carried it.
+-- `rebuildHypotheses` was removed with the WAL backend (Postgres-only, 2026-07-07); its verb-world
+-- replacement is `Cxm.CommandsV.rebuildInferenceV` (per-subject, owner-scoped: lockRoot subject →
+-- clear ACTIVE hyps → re-derive via `inferHypotheses`), validated by the pg-diff idempotency net.

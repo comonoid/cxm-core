@@ -194,6 +194,15 @@ LISTEN-колбэк на выделенном соединении.
   `pg-diff` ALL GREEN (native≡PG, семантика сохранена); layering-guard зелёный.** Доки обновлены
   (MODULES.md слои/каталог, framework CLAUDE.md, edsl-intro). Остаток стор-EDSL — см. раскладку.
 
+- **★ `rebuildInferenceV` ЗАКРЫТ (2026-07-07)** — единственный функциональный пробел от чистки
+  (кабинет Ф4 «перестроить вывод» был WAL-only, не портирован). Порт на верболы в `Cxm.CommandsV`:
+  PER-SUBJECT + owner-scoped (lockRoot субъекта → require+guard tenant → clear ACTIVE-гипотез через
+  byIx+del → re-derive из событий субъекта чистой `inferHypotheses` → insert fresh). SETTLED
+  (REFUTED/CONFIRMED/SUPERSEDED) сохраняются (§4.1); идемпотентно. Роут `POST /knowledge/
+  rebuild-inference` (cabinet:use). pg-diff-сценарий `inference-rebuild-idempotent` (двойной
+  rebuild ⇒ ровно 1 «unmet-need») — **ALL GREEN (8/8), native≡PG**. Паритет с WAL-оригиналом
+  (audit #C): не консультируется с retained-refutations перед пере-предложением (MVP-правила).
+
 ## АУДИТ wave-1 (2026-07-07, вечер) — 3 находки, ВСЕ закрыты и проверены живьём
 - **H1 (TOCTOU, наш же анти-паттерн):** /notifications делал check (ownedTo) и enqueue ДВУМЯ
   транзакциями. Фикс: один атом (`ownedTo >>=T guardT Forbidden >>T enqueue`). Live: unverified →

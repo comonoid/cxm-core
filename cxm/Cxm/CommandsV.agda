@@ -68,11 +68,11 @@ open import Cxm.Account using (Account; mkAccount; acBalance)
 open import Cxm.Store.Base using
   ( Err; NotFound; Conflict; Invariant; InvalidTransition
   ; edgeByFrom; edgeByTo; identBySubject; entBySubject; epBySubject; knowBySubject; ptByProtocol
-  ; expBySubject; promBySubject; paymentBySubject; apptBySubject; evdByKnowledge
+  ; expBySubject; promBySubject; paymentBySubject; apptBySubject; evdByKnowledge; eventBySubject
   ; trByEpisode; dvByEpisode; outByStatus; busByProcessed )
 open import Cxm.Store.Verbs
 open import Cxm.Knowledge using (KRevision; KStrengthen; KWeaken; KConfirm; KRefute; KSupersede; KRedetail)
-open import Cxm.Inference using (strengthen; weaken; confirm; refute; supersede)
+open import Cxm.Inference using (strengthen; weaken; confirm; refute; supersede; inferHypotheses)
 
 private
   emptyStr : String → Bool
@@ -223,6 +223,38 @@ updateKnowledgeV kid rev caller =
     revise KRefute         k = refute k
     revise KSupersede      k = supersede k
     revise (KRedetail s)   k = record k { kDetail = s }
+
+-- rebuildInference: re-derive a subject's ACTIVE hypotheses from its event log — the verb-world
+-- port of the retired WAL `rebuildHypotheses`, now PER-SUBJECT + owner-scoped (RC lock on the
+-- subject) instead of a global scan. Clears only ACTIVE HYPOTHESIS rows; SETTLED judgments
+-- (REFUTED/CONFIRMED/SUPERSEDED) are RETAINED (§4.1). Idempotent — inference is a pure function
+-- of the [СОБ] log. NB (parity with the WAL original, audit #C): does NOT consult retained
+-- refutations before re-proposing a claim; the MVP rules emit only fresh ACTIVE hypotheses.
+rebuildInferenceV : (subject caller : ℕ) → Tx ⊤
+rebuildInferenceV subj caller =
+  lockRoot tcSubject subj >>T
+  require tcSubject subj NotFound >>=T λ s →
+  guardT (sTenant s ≡ᵇ caller) NotFound >>T                     -- owner-isolation
+  byIx tcKnowledge knowBySubject subj >>=T λ kids →
+  forEachTx kids clearActiveHyp >>T
+  byIx tcEvent eventBySubject subj >>=T λ eids →
+  collectEvents eids >>=T λ evs →
+  forEachTx (inferHypotheses evs) insertHyp
+  where
+    isActiveHyp : Knowledge → Bool
+    isActiveHyp k with kType k | kStatus k
+    ... | HYPOTHESIS | ACTIVE = true
+    ... | _          | _      = false
+    clearActiveHyp : ℕ → Tx ⊤
+    clearActiveHyp kid = get tcKnowledge kid >>=T λ where
+      (just k) → if isActiveHyp k then del tcKnowledge kid else returnT tt
+      nothing  → returnT tt
+    collectEvents : List ℕ → Tx (List ExperienceEvent)
+    collectEvents []       = returnT []
+    collectEvents (i ∷ is) = get tcEvent i >>=T λ me →
+      collectEvents is >>=T λ rest → returnT (maybe′ (λ e → e ∷ rest) rest me)
+    insertHyp : Knowledge → Tx ⊤
+    insertHyp k = fresh >>=T λ kid → put tcKnowledge (record k { kId = kid })
 
 -- attachEvidence: evidence roots at its KNOWLEDGE row (rootOf) — lock it, re-read, guard, insert
 attachEvidenceV : (kid eventId : ℕ) (tenant now : ℕ) → Tx ℕ

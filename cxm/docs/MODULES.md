@@ -135,7 +135,7 @@ Postgres}`) живёт в `agdelte-store` — домен-нейтрален; `Cx
 |---|---|---|
 | `Projection` | activeLines, decisionUnit, eventTypeSequence, subjectProfile, contributionOf, coSupportShare, statusDropPeaks | функции от списков; никакого скрытого состояния |
 | `Decision` | триггеры/приоритет/decide/arbitrate | внешний контур выигрывает (§8.4) |
-| `Inference` | decay/ревизия (strengthen/weaken/confirm/refute/supersede)/inferHypotheses — ЧИСТО | детерминированная ф-ция лога (rebuild-from-scratch); REFUTED — не delete; verb-порт rebuild — post-cutover пробел |
+| `Inference` | decay/ревизия (strengthen/weaken/confirm/refute/supersede)/inferHypotheses — ЧИСТО | детерминированная ф-ция лога (rebuild-from-scratch); REFUTED — не delete; store-rebuild — `CommandsV.rebuildInferenceV` (per-subject, owner-scoped) |
 | `Social` | followsᵇ/entitledUpᵇ/canAccess/canList (листинг≠чтение, S7) + feedViews/threadViews (locked-тизеры; лента = только контент, не комменты) + showcaseViews (витрина: ранги+validTo-окно) + threadOf/feedOf (сырые) | грант НАСЛЕДУЕТСЯ вниз по дереву (продажа раздела одним грантом); неизвестная политика ⇒ deny; лента/тред — rebuild-from-scratch. Закладки: WS-push, "circle:<id>", переносимый Entitlement, fulfilment-as-data (П3). rUpdatedAt/updateResource — реализовано (П2) |
 
 ### L6 — IO/exec (единственная дверь к драйверу)
