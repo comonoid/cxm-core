@@ -24,7 +24,7 @@ const WIDGETS = [
       const r = await fetch('/integration-tokens', { method: 'POST',
         headers: { Authorization: 'Bearer ' + ctx.jwt }, body: JSON.stringify({ origin: 'harness' }) });
       const itok = (await r.json()).data.token;
-      const root = window.prompt('id корневого ресурса треда', '21') || '0';
+      const root = window.prompt('id корневого ресурса треда (из своей БД)', '') || '0';
       return mod.threadApp(ctx.client.mkV1Cfg('')(itok)('user_id')('dev-viewer'))(BigInt(root));
     } },
   { id: 'showcase', title: 'Витрина (Ф3.3)',
@@ -33,7 +33,7 @@ const WIDGETS = [
       const r = await fetch('/integration-tokens', { method: 'POST',
         headers: { Authorization: 'Bearer ' + ctx.jwt }, body: JSON.stringify({ origin: 'harness' }) });
       const itok = (await r.json()).data.token;
-      const shelf = window.prompt('id узла-полки витрины', '60') || '0';
+      const shelf = window.prompt('id узла-полки витрины (из своей БД)', '') || '0';
       return mod.showcaseApp(ctx.client.mkV1Cfg('')(itok)('user_id')('dev-viewer'))(BigInt(shelf));
     } },
   { id: 'paywall', title: 'Paywall (Ф3.4)',

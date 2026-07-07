@@ -27,7 +27,9 @@ errText (httpErr s)   = tErrNet ++ s
 errText (serverErr e) = tErrServer ++ aeCode e
 errText (decodeErr s) = tErrDecode ++ s
 
--- kopecks → "500.00" (minor units, always two decimals) — money formatting is shared vocabulary
+-- kopecks → "500.00" — money formatting is shared vocabulary. ⚠ Предполагает валюту со 100
+-- minor units (RUB/USD/EUR); JPY (0 знаков) / KWD (3) потребуют параметризации по exponent —
+-- сделать при первой не-2-значной валюте (аудит-5 №6).
 showAmount : ℕ → String
 showAmount p = show (p / 100) ++ "." ++ (if (p % 100) <ᵇ 10 then "0" else "") ++ show (p % 100)
 

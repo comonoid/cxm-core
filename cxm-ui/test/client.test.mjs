@@ -200,9 +200,13 @@ test('bodies: /v1 (identity-конверт + extras, опциональные п
   eq(N(o.offering), 94); eq(o.ext_id, 'e-1');
   o = jb(Client.v1Body(cfg)(Client.publishExtra(0n)('')('')('{"text":"пост"}')));
   eq(o.parent, undefined); eq(o.visibility, undefined); eq(o.payload, '{"text":"пост"}');
-  o = jb(Client.v1Body(cfg)(Client.commentExtra(21n)(21n)('private')('public')('{"text":"реплика"}')));
-  eq(o.anchor_kind, 'resource'); eq(N(o.anchor_id), 21); eq(N(o.parent), 21);
+  o = jb(Client.v1Body(cfg)(Client.commentExtra('episode')(6n)(0n)('private')('public')([19n, 25n])('{"text":"реплика"}')));
+  eq(o.anchor_kind, 'episode');                            // аудит-5 №2: якорь параметризован
+  eq(N(o.anchor_id), 6); eq(o.parent, undefined);
   eq(o.visibility, 'private'); eq(o.listing, 'public');   // locked-реплика доступна биндингу
+  eq(o.addressees, '[19,25]');                             // аудит-5 №3: упоминания (строка-JSON)
+  o = jb(Client.v1Body(cfg)(Client.commentExtra('resource')(21n)(21n)('')('')([])('{}')));
+  eq(o.addressees, undefined, 'пустые упоминания опускаются');
   o = jb(Client.v1Body(cfg)(Client.followExtra('user_id')('author-1')));
   eq(o.target_channel, 'user_id'); eq(o.target_id, 'author-1');
   o = jb(Client.v1Body(cfg)(Client.eventExtra('{"page":"/pricing"}')));   // аудит-4 №1
@@ -219,6 +223,16 @@ test('envelope + intTokenListDec (GET /integration-tokens — форма listTok
   const IT = Contract.IntTokenView;
   const xs = envOk(Contract.intTokenListDec, { data: [{ id: 18, scope: '/v1', revoked: false }] });
   eq(N(IT.itId(xs[0])), 18); eq(IT.itScope(xs[0]), '/v1'); eq(IT.itRevoked(xs[0]), false);
+});
+
+test('healthDec (REAL live shape — не-data-конверт, версия контракта)', () => {
+  const HV = Contract.HealthView;
+  const r = matchResult(JsonMod.decodeString(null)(Contract.healthDec)(
+    '{"ok":true,"backend":"postgres","contract":1}'));
+  if (r.tag !== 'ok') throw new Error('decode failed');
+  eq(HV.hOk(r.value), true); eq(HV.hBackend(r.value), 'postgres');
+  eq(N(HV.hContract(r.value)), 1);
+  eq(N(Contract.expectedContract), 1, 'ожидаемая версия cxm-ui совпадает с живой');
 });
 
 test('verifyIdentity-конверт ({"data":{"verified":true}})', () => {

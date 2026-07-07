@@ -161,6 +161,31 @@ evidenceListDec : Decoder (List EvidenceView)
 evidenceListDec = list evidenceDec
 
 ------------------------------------------------------------------------
+-- Health (GET /health) — liveness + CONTRACT VERSION (аудит-5 №4). The one response that is
+-- NOT data-enveloped. `expectedContract` is what THIS cxm-ui build binds; a site compares it
+-- with hContract at mount and screams on skew (server bumps its contractVersion on any
+-- encoder/route shape change — the discipline lives in the server route's header comment).
+------------------------------------------------------------------------
+
+expectedContract : ℕ
+expectedContract = 1
+
+record HealthView : Set where
+  constructor mkHealthView
+  field
+    hOk       : Bool
+    hBackend  : String
+    hContract : ℕ
+open HealthView public
+
+healthDec : Decoder HealthView
+healthDec =
+  field′ "ok" bool         >>= λ o →
+  field′ "backend" string  >>= λ b →
+  field′ "contract" nat    >>= λ c →
+  succeed (mkHealthView o b c)
+
+------------------------------------------------------------------------
 -- Integration tokens (GET /integration-tokens) — the owner's token list (аудит-4 №3)
 ------------------------------------------------------------------------
 

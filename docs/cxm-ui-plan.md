@@ -240,6 +240,24 @@
 - **№8/№10 (мелочи):** юнит на verifyIdentity-конверт и intTokenListDec; refl «Buy при ошибке
   съедает номер ext_id»; кросс-реф на cxm-ui/README.md в docs/MODULES.md.
 
+## Аудит-5 2026-07-07 — ВСЕ находки закрыты (смоук 28/28, юнит 11+28, refl)
+- **№1 (гонка):** write-ответы карточки тегированы субъектом (`GotRevise/GotRebuild/GotObs : ℕ → …`,
+  `ifCurrent`) — стейл-ответ от прежнего клиента больше НЕ снимает busy нового write (окно
+  двойного сабмита закрыто); +3 refl «стейл: busy цел».
+- **№2:** `commentV1` параметризован `anchorKind` — все 6 серверных якорей доступны
+  (resource/appointment/promise/entitlement/subject/episode — «разговор в точке контакта»).
+- **№3:** mentions доехали: роут /v1/comment парсит `"addressees":"[1,2]"` (строка-JSON в духе
+  payload/metadata — jsonGetField берёт только string-поля; decodeIds), биндинг шлёт список
+  (`showIds`, пустой опускается); live ✓.
+- **№4:** `/health` отдаёт `"contract":N` (серверный `contractVersion`, инкремент при любом
+  изменении формы) + `Client.health`/`HealthView`/`Contract.expectedContract` — дрейф
+  cxm-ui↔сервер ловится сверкой при маунте, дисциплина в README; live ✓.
+- **№5 (перф-долг, честно):** authorName-джойн добавил полный скан субъектов к каждому
+  соц-риду (поверх 3–4 сканов bucket-D «fetch+fold сейчас») — катоверному перф-проходу:
+  горячие риды → query-EDSL (план pg-store), долг вырос осознанно.
+- **№6–8 (мелочи):** showAmount — докстринг про 100 minor units (JPY/KWD → параметризация);
+  харнесс-промпты без магических id; refl-пакет стейл-write.
+
 ## Заметки / решения по ходу
 - Ф2.3-хвост ЗАКРЫТ (2026-07-07): `Client.reviseKnowledgeBy` (amount) + кнопки «▲ +50»/«▼ −50»
   (фикс-шаг вместо ввода числа) + **redetail-форма** («✎ детали» → преднаполненный input →

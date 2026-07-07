@@ -104,6 +104,11 @@ private
   str : String → String
   str s = "\"" <> escapeJsonString s <> "\""
 
+  -- версия wire-контракта (аудит-5 №4): инкрементировать при ЛЮБОМ изменении формы
+  -- энкодеров/роутов; cxm-ui сверяет со своей ожидаемой (Contract.expectedContract) через /health.
+  contractVersion : ℕ
+  contractVersion = 1
+
   okJson : String → HttpResponse
   okJson body = mkResponse 200 ("{\"data\":" <> body <> "}")
 
@@ -703,10 +708,14 @@ private
                   "" "UTC" vt now >>=T λ author →
                 followSubjectV follower author vt now) idJson
     else if is p "/v1/comment" then
+      -- addressees (упоминания, аудит-5 №3): строка-JSON "[1,2]" (jsonGetField берёт только
+      -- string-поля — в духе payload/metadata), decodeIds парсит; отсутствие/мусор = []
       runW run (resolveOrCreateSubjectV ich iid "" "UTC" vt now >>=T λ author →
                 commentOnV author (fieldOr req "anchor_kind" "resource") (natOr req "anchor_id" 0)
                   (mFk (natOr req "parent" 0)) (mStr (fieldOr req "visibility" ""))
-                  (mStr (fieldOr req "listing" "")) (fieldOr req "payload" "{}") [] vt now) idJson
+                  (mStr (fieldOr req "listing" "")) (fieldOr req "payload" "{}")
+                  (maybe′ (λ raw → maybe′ (λ xs → xs) [] (decodeIds raw)) []
+                          (jsonGetField "addressees" (reqBody req))) vt now) idJson
     else if is p "/v1/merge-session" then
       runW run (mergeSessionV (natOr req "provisional" 0) ich iid vt now) okUnit
     -- cxm-ui Ф3.4 (paywall): viewer-facing offering list + purchase start. Payment success stays
@@ -733,7 +742,8 @@ private
   route : TxRunner → String → HttpRequest → IO HttpResponse
   route run secret req =
     let m = reqMethod req ; p = reqPath req in
-    if is m "GET" ∧ is p "/health" then pure (mkResponse 200 "{\"ok\":true,\"backend\":\"postgres\"}")
+    if is m "GET" ∧ is p "/health" then
+      pure (mkResponse 200 ("{\"ok\":true,\"backend\":\"postgres\",\"contract\":" <> show contractVersion <> "}"))
     else if is m "POST" ∧ is p "/auth/register" then postRegister run req
     else if is m "POST" ∧ is p "/auth/login" then postLogin run secret req
     else if is m "POST" ∧ is p "/verify-identity" then postVerifyIdentity run secret req

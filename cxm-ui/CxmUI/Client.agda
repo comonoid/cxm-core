@@ -15,8 +15,8 @@ open import Agda.Builtin.Unit using (⊤; tt)
 open import Data.Char using (Char)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.Nat.Show using (show)
-open import Data.String using (String; _++_; toList; fromList)
-open import Data.List using (List; []; _∷_; concatMap; take; length)
+open import Data.String using (String; _++_; toList; fromList; intersperse)
+open import Data.List using (List; []; _∷_; concatMap; take; length; map; null)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (if_then_else_)
 
@@ -251,6 +251,18 @@ register cfg lg pw nm k =
   httpPostH (base cfg ++ "/auth/register") [] (registerBody lg pw nm)
             (λ r → k (envelope idDec r)) (λ r → k (err (errBody r)))
 
+-- liveness + contract skew check (аудит-5 №4): /health — единственный НЕ-data-конверт;
+-- сайт при маунте сверяет hContract с Contract.expectedContract.
+health : ∀ {M : Set} → Cfg → (Result CallErr HealthView → M) → Cmd M
+health cfg k =
+  httpGetH (base cfg ++ "/health") []
+           (λ r → k (bare r)) (λ r → k (err (errBody r)))
+  where
+    bare : String → Result CallErr HealthView
+    bare r with decodeString healthDec r
+    ... | ok h  = ok h
+    ... | err m = err (decodeErr m)
+
 -- confirm a contact with the HMAC token from the verification e-mail; {"verified":true} on ok
 verifyIdentity : ∀ {M : Set} → Cfg → (identity : ℕ) (token : String) → (Result CallErr ⊤ → M) → Cmd M
 verifyIdentity cfg iid tok k =
@@ -461,10 +473,19 @@ publishExtra parent vis lst payload =
   optNat "parent" parent ++ optStr "visibility" vis ++ optStr "listing" lst
     ++ "," ++ kv "payload" (q payload)
 
-commentExtra : (anchor parent : ℕ) (visibility listing payload : String) → String
-commentExtra anchor parent vis lst payload =
-  "," ++ kv "anchor_kind" (q "resource") ++ "," ++ kv "anchor_id" (show anchor)
+-- a JSON array of nats AS A STRING VALUE ("[1,2]") — jsonGetField на сервере берёт только
+-- string-поля, в духе payload/metadata (сервер парсит decodeIds)
+showIds : List ℕ → String
+showIds xs = "[" ++ intersperse "," (map show xs) ++ "]"
+
+-- аудит-5 №2: anchorKind — параметр (сервер поддерживает resource/appointment/promise/
+-- entitlement/subject/episode — «разговор в точке контакта»); addressees — упоминания (№3)
+commentExtra : (anchorKind : String) (anchor parent : ℕ) (visibility listing : String)
+               (addressees : List ℕ) (payload : String) → String
+commentExtra ak anchor parent vis lst tos payload =
+  "," ++ kv "anchor_kind" (q ak) ++ "," ++ kv "anchor_id" (show anchor)
     ++ optNat "parent" parent ++ optStr "visibility" vis ++ optStr "listing" lst
+    ++ (if null tos then "" else "," ++ kv "addressees" (q (showIds tos)))
     ++ "," ++ kv "payload" (q payload)
 
 followExtra : (targetChannel targetId : String) → String
@@ -515,12 +536,14 @@ publishV1 : ∀ {M : Set} → V1Cfg → (parent : ℕ) (visibility listing paylo
             → (Result CallErr ℕ → M) → Cmd M
 publishV1 c parent vis lst payload = postV1 c "/v1/publish" (publishExtra parent vis lst payload) idDec
 
--- a conversation node under `parent` (0 = top-level), anchored to `anchor`; visibility/listing
--- "" = серверные дефолты (аудит-3 №10: locked-реплика теперь доступна биндингу)
-commentV1 : ∀ {M : Set} → V1Cfg → (anchor parent : ℕ) (visibility listing payload : String)
+-- a conversation node under `parent` (0 = top-level), anchored to (anchorKind, anchor) —
+-- resource|appointment|promise|entitlement|subject|episode; visibility/listing "" = серверные
+-- дефолты; addressees = упоминания ([] = нет)
+commentV1 : ∀ {M : Set} → V1Cfg → (anchorKind : String) (anchor parent : ℕ)
+            (visibility listing : String) (addressees : List ℕ) (payload : String)
             → (Result CallErr ℕ → M) → Cmd M
-commentV1 c anchor parent vis lst payload =
-  postV1 c "/v1/comment" (commentExtra anchor parent vis lst payload) idDec
+commentV1 c ak anchor parent vis lst tos payload =
+  postV1 c "/v1/comment" (commentExtra ak anchor parent vis lst tos payload) idDec
 
 followV1 : ∀ {M : Set} → V1Cfg → (targetChannel targetId : String) → (Result CallErr ℕ → M) → Cmd M
 followV1 c tch tid = postV1 c "/v1/follow" (followExtra tch tid) idDec

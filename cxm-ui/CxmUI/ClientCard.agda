@@ -80,20 +80,20 @@ data Msg : Set where
   GotAppointments : ℕ → Result CallErr (List AppointmentView) → Msg
   GotExpectations : ℕ → Result CallErr (List ExpectationView) → Msg
   Rebuild        : Msg                                    -- rebuild inference for the selected subject
-  GotRebuild     : Result CallErr ⊤ → Msg
+  GotRebuild     : ℕ → Result CallErr ⊤ → Msg             -- write-ответы ТОЖЕ тегированы (аудит-5 №1):
   Revise         : ℕ → String → Msg                       -- (knowledge id, kind) — Ф2.3
   ReviseBy       : ℕ → String → ℕ → Msg                   -- + amount (strengthen/weaken, шаг UI)
   EditDetail     : ℕ → String → Msg                       -- открыть redetail-форму (kid, текущий kDetail)
   EditInput      : String → Msg
-  SaveDetail     : Msg
-  CancelEdit     : Msg
-  GotRevise      : Result CallErr ⊤ → Msg
+  SaveDetail     : Msg                                    --   стейл-ответ от прежнего клиента не
+  CancelEdit     : Msg                                    --   должен снимать busy нового write
+  GotRevise      : ℕ → Result CallErr ⊤ → Msg
   LoadEvidence   : ℕ → Msg                                -- «🔎 почему» (toggle: повторный клик закрывает)
   GotEvidence    : ℕ → Result CallErr (List EvidenceView) → Msg
   CloseEvidence  : Msg
   ObsInput       : String → Msg                           -- «добавить наблюдение» (create STATED)
   AddObs         : Msg
-  GotObs         : Result CallErr ℕ → Msg
+  GotObs         : ℕ → Result CallErr ℕ → Msg
 
 ------------------------------------------------------------------------
 -- Update (pure) + the effect hook (cmd)
@@ -122,16 +122,17 @@ updateModel (GotAppointments sid (err e)) m = ifCurrent sid m (record m { status
 updateModel (GotExpectations sid (ok xs)) m = ifCurrent sid m (record m { expectations = xs })
 updateModel (GotExpectations sid (err e)) m = ifCurrent sid m (record m { status = errText e })
 updateModel Rebuild m = record m { status = tCardRebuilding ; busy = true }
-updateModel (GotRebuild (ok _)) m = record m { status = tCardRebuilt ; busy = false }
-updateModel (GotRebuild (err e)) m = record m { status = errText e ; busy = false }
+updateModel (GotRebuild sid (ok _)) m = ifCurrent sid m (record m { status = tCardRebuilt ; busy = false })
+updateModel (GotRebuild sid (err e)) m = ifCurrent sid m (record m { status = errText e ; busy = false })
 updateModel (Revise _ kind) m = record m { status = tCardRevising ++ tKindRu kind ++ tEllipsis ; busy = true }
 updateModel (ReviseBy _ kind _) m = record m { status = tCardRevising ++ tKindRu kind ++ tEllipsis ; busy = true }
 updateModel (EditDetail kid cur) m = record m { editing = kid ; editText = cur }
 updateModel (EditInput s) m = record m { editText = s }
 updateModel SaveDetail m = record m { status = tCardSavingDetail ; busy = true }
 updateModel CancelEdit m = record m { editing = 0 ; editText = "" }
-updateModel (GotRevise (ok _)) m = record m { status = tCardRevised ; editing = 0 ; busy = false }
-updateModel (GotRevise (err e)) m = record m { status = errText e ; busy = false }
+updateModel (GotRevise sid (ok _)) m =
+  ifCurrent sid m (record m { status = tCardRevised ; editing = 0 ; busy = false })
+updateModel (GotRevise sid (err e)) m = ifCurrent sid m (record m { status = errText e ; busy = false })
 updateModel (LoadEvidence kid) m =
   if kid ≡ᵇ evidenceFor m
     then record m { evidenceFor = 0 ; evidence = [] }     -- toggle: повторный клик закрывает
@@ -146,8 +147,8 @@ updateModel (ObsInput s) m = record m { obsText = s }
 updateModel AddObs m =
   if primStringEquality (obsText m) "" then m
   else record m { status = tCardAddingObs ; busy = true ; obsText = "" }
-updateModel (GotObs (ok _)) m = record m { busy = false }
-updateModel (GotObs (err e)) m = record m { status = errText e ; busy = false }
+updateModel (GotObs sid (ok _)) m = ifCurrent sid m (record m { busy = false })
+updateModel (GotObs sid (err e)) m = ifCurrent sid m (record m { status = errText e ; busy = false })
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf LoadRoster    m = roster (cfg m) GotRoster
@@ -155,17 +156,20 @@ cmdOf (Select sid)  m = batch ( knowledgeOf    (cfg m) sid (GotKnowledge sid)
                               ∷ episodesOf     (cfg m) sid (GotEpisodes sid)
                               ∷ appointmentsOf (cfg m) sid (GotAppointments sid)
                               ∷ expectationsOf (cfg m) sid (GotExpectations sid) ∷ [] )
-cmdOf Rebuild            m = rebuildInference (cfg m) (selected m) GotRebuild
-cmdOf (GotRebuild (ok _)) m = knowledgeOf (cfg m) (selected m) (GotKnowledge (selected m))
-cmdOf (Revise kid kind)  m = reviseKnowledge (cfg m) kid kind GotRevise
-cmdOf (ReviseBy kid kind amt) m = reviseKnowledgeBy (cfg m) kid kind amt GotRevise
-cmdOf SaveDetail         m = reviseDetail (cfg m) (editing m) (editText m) GotRevise
-cmdOf (GotRevise (ok _)) m = knowledgeOf (cfg m) (selected m) (GotKnowledge (selected m))
+cmdOf Rebuild            m = rebuildInference (cfg m) (selected m) (GotRebuild (selected m))
+cmdOf (GotRebuild sid (ok _)) m =
+  if sid ≡ᵇ selected m then knowledgeOf (cfg m) sid (GotKnowledge sid) else ε
+cmdOf (Revise kid kind)  m = reviseKnowledge (cfg m) kid kind (GotRevise (selected m))
+cmdOf (ReviseBy kid kind amt) m = reviseKnowledgeBy (cfg m) kid kind amt (GotRevise (selected m))
+cmdOf SaveDetail         m = reviseDetail (cfg m) (editing m) (editText m) (GotRevise (selected m))
+cmdOf (GotRevise sid (ok _)) m =
+  if sid ≡ᵇ selected m then knowledgeOf (cfg m) sid (GotKnowledge sid) else ε
 -- cmd видит PRE-update модель: клик по уже открытому kid = закрытие → НЕ фетчить
 cmdOf (LoadEvidence kid) m = if kid ≡ᵇ evidenceFor m then ε else evidenceOf (cfg m) kid (GotEvidence kid)
 cmdOf AddObs             m = if primStringEquality (obsText m) "" then ε
-                             else createKnowledge (cfg m) (selected m) (obsText m) GotObs
-cmdOf (GotObs (ok _))    m = knowledgeOf (cfg m) (selected m) (GotKnowledge (selected m))
+                             else createKnowledge (cfg m) (selected m) (obsText m) (GotObs (selected m))
+cmdOf (GotObs sid (ok _)) m =
+  if sid ≡ᵇ selected m then knowledgeOf (cfg m) sid (GotKnowledge sid) else ε
 cmdOf _                  _ = ε
 
 ------------------------------------------------------------------------

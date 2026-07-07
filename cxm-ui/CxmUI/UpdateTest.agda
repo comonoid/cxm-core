@@ -63,7 +63,8 @@ _ : C.obsText mAfter ≡ ""
 _ = refl
 
 ------------------------------------------------------------------------
--- busy-переходы: write ставит, ответ снимает (ok и err)
+-- busy-переходы: write ставит, СВОЙ ответ снимает (ok и err); ЧУЖОЙ (стейл от прежнего
+-- клиента) — дропается и busy НЕ трогает (аудит-5 №1: окно двойного сабмита закрыто)
 ------------------------------------------------------------------------
 
 private
@@ -71,11 +72,17 @@ private
 
 _ : C.busy mBusy ≡ true
 _ = refl
-_ : C.busy (C.updateModel (C.GotRevise (ok tt)) mBusy) ≡ false
+_ : C.busy (C.updateModel (C.GotRevise 7 (ok tt)) mBusy) ≡ false
 _ = refl
-_ : C.busy (C.updateModel (C.GotRevise (err (httpErr "x"))) mBusy) ≡ false
+_ : C.busy (C.updateModel (C.GotRevise 7 (err (httpErr "x"))) mBusy) ≡ false
 _ = refl
-_ : C.editing (C.updateModel (C.GotRevise (ok tt)) (C.updateModel (C.EditDetail 3 "y") mBusy)) ≡ 0
+_ : C.busy (C.updateModel (C.GotRevise 5 (ok tt)) mBusy) ≡ true          -- стейл: busy цел
+_ = refl
+_ : C.busy (C.updateModel (C.GotRebuild 5 (ok tt)) mBusy) ≡ true         -- стейл: busy цел
+_ = refl
+_ : C.busy (C.updateModel (C.GotObs 5 (ok 9)) mBusy) ≡ true              -- стейл: busy цел
+_ = refl
+_ : C.editing (C.updateModel (C.GotRevise 7 (ok tt)) (C.updateModel (C.EditDetail 3 "y") mBusy)) ≡ 0
 _ = refl
 
 ------------------------------------------------------------------------
@@ -107,7 +114,7 @@ _ : C.busy (C.updateModel C.AddObs mObs) ≡ true
 _ = refl
 _ : C.obsText (C.updateModel C.AddObs mObs) ≡ ""
 _ = refl
-_ : C.busy (C.updateModel (C.GotObs (ok 9)) (C.updateModel C.AddObs mObs)) ≡ false
+_ : C.busy (C.updateModel (C.GotObs 7 (ok 9)) (C.updateModel C.AddObs mObs)) ≡ false
 _ = refl
 
 ------------------------------------------------------------------------

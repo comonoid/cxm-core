@@ -66,7 +66,7 @@ cmdOf : Msg → Model → Cmd Msg
 cmdOf Load  m = thread (cfg m) (root m) (limit m) Got
 -- cmd видит PRE-update модель — replyText ещё не очищен; пустой сабмит = ε
 cmdOf Reply m = if primStringEquality (replyText m) "" then ε
-                else commentV1 (cfg m) (root m) (root m) "" "" (replyText m) GotReply
+                else commentV1 (cfg m) "resource" (root m) (root m) "" "" [] (replyText m) GotReply
 cmdOf (GotReply (ok _)) m = thread (cfg m) (root m) (limit m) Got   -- reload after reply
 cmdOf _     _ = ε
 
