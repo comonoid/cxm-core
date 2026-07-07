@@ -136,6 +136,81 @@ test('showAmount (minor units → two decimals)', () => {
   eq(Widget.showAmount(12345n), '123.45');
 });
 
+// ── Body-билдеры (аудит-3 №9): чистая половина каждого биндинга — парсим как JSON и сверяем
+// имена полей с серверными роутами; опечатка в имени больше не доживает до рантайма.
+const jb = (s) => JSON.parse(s);
+test('bodies: onboarding (register/verify/identity/login)', () => {
+  let o = jb(Client.registerBody('a@b')('pw')('Имя "А"'));
+  eq(o.login, 'a@b'); eq(o.password, 'pw'); eq(o.name, 'Имя "А"');
+  o = jb(Client.verifyIdentityBody(7n)('hmac-tok'));
+  eq(N(o.identity), 7); eq(o.token, 'hmac-tok');
+  o = jb(Client.identityBody(4n)('email')('x@y'));
+  eq(N(o.subject), 4); eq(o.channel, 'email'); eq(o.id, 'x@y');
+  o = jb(Client.loginBody('l')('p')); eq(o.login, 'l'); eq(o.password, 'p');
+});
+
+test('bodies: cabinet creates', () => {
+  eq(jb(Client.subjectBody('Мария')).name, 'Мария');
+  let o = jb(Client.knowledgeBody(4n)('заметка\nс переводом'));
+  eq(N(o.subject), 4); eq(o.detail, 'заметка\nс переводом');
+  o = jb(Client.episodeBody(4n)(5n)('адаптация'));
+  eq(N(o.protocol), 5); eq(o.jtbd, 'адаптация');
+  o = jb(Client.episodeTransitionBody(6n)(200n));
+  eq(N(o.episode), 6); eq(N(o.to), 200);
+  o = jb(Client.protocolBody('CBT')(0n)); eq(o.name, 'CBT'); eq(N(o.initial), 0);
+  o = jb(Client.protocolStateBody(5n)(100n)('в работе'));
+  eq(N(o.protocol), 5); eq(N(o.code), 100); eq(o.name, 'в работе');
+  o = jb(Client.protocolTransitionBody(5n)(0n)(100n)); eq(N(o.from), 0); eq(N(o.to), 100);
+  o = jb(Client.expectationBody(4n)('ответ за 24ч')(800n));
+  eq(o.topic, 'ответ за 24ч'); eq(N(o.level), 800);
+  o = jb(Client.appointmentBody(4n)(2n)(5000n)(60n));
+  eq(N(o.resource), 2); eq(N(o.start), 5000); eq(N(o.duration), 60);
+  o = jb(Client.attachEvidenceBody(8n)(7n)); eq(N(o.knowledge), 8); eq(N(o.event), 7);
+});
+
+test('bodies: revises / link / tokens / offerings / promises / generic id', () => {
+  let o = jb(Client.reviseBody(8n)('confirm')); eq(N(o.knowledge), 8); eq(o.kind, 'confirm');
+  o = jb(Client.reviseByBody(8n)('strengthen')(50n)); eq(N(o.amount), 50);
+  o = jb(Client.redetailBody(8n)('новый "текст"'));
+  eq(o.kind, 'redetail'); eq(o.detail, 'новый "текст"');
+  o = jb(Client.linkBody(60n)(21n)(2n)(0n));
+  eq(N(o.from), 60); eq(N(o.to), 21); eq(N(o.rank), 2); eq(N(o.validTo), 0);
+  eq(jb(Client.mintBody('site-a')).origin, 'site-a');
+  o = jb(Client.offeringBody(1n)(50000n)('RUB')('{"grants":[{"kind":"resource","id":92}]}'));
+  eq(N(o.price), 50000); eq(o.currency, 'RUB'); eq(o.metadata, '{"grants":[{"kind":"resource","id":92}]}');
+  o = jb(Client.promiseBody(4n)('перезвонить')(1783500000n));
+  eq(o.topic, 'перезвонить'); eq(N(o.deadline), 1783500000);
+  o = jb(Client.promiseTransferBody(9n)(5n)(0n)); eq(N(o.holder), 5); eq(N(o.penalty_to), 0);
+  o = jb(Client.promiseReferBody(9n)(1000n)); eq(N(o.stake), 1000);
+  eq(N(jb(Client.idBody('link')(63n)).link), 63);
+});
+
+test('bodies: /v1 (identity-конверт + extras, опциональные поля опускаются)', () => {
+  const cfg = Client.mkV1Cfg('https://x')('tok')('cookie')('s"1');
+  let o = jb(Client.v1Body(cfg)(Client.purchaseExtra(94n)('e-1')));
+  eq(o.identity_channel, 'cookie'); eq(o.identity_id, 's"1');
+  eq(N(o.offering), 94); eq(o.ext_id, 'e-1');
+  o = jb(Client.v1Body(cfg)(Client.publishExtra(0n)('')('')('{"text":"пост"}')));
+  eq(o.parent, undefined); eq(o.visibility, undefined); eq(o.payload, '{"text":"пост"}');
+  o = jb(Client.v1Body(cfg)(Client.commentExtra(21n)(21n)('private')('public')('{"text":"реплика"}')));
+  eq(o.anchor_kind, 'resource'); eq(N(o.anchor_id), 21); eq(N(o.parent), 21);
+  eq(o.visibility, 'private'); eq(o.listing, 'public');   // locked-реплика доступна биндингу
+  o = jb(Client.v1Body(cfg)(Client.followExtra('user_id')('author-1')));
+  eq(o.target_channel, 'user_id'); eq(o.target_id, 'author-1');
+});
+
+test('mintedDec ({"data":{"id","token"}} — форма okJson-обёртки минта)', () => {
+  const MT = Client.MintedToken;
+  const v = envOk(Client.mintedDec, { data: { id: 18, token: 'SHK5=' } });
+  eq(N(MT.mtId(v)), 18); eq(MT.mtToken(v), 'SHK5=');
+});
+
+test('envelope + outboxListDec (GET /outbox — ops-вид доставки)', () => {
+  const OV = Contract.OutboxView;
+  const xs = envOk(Contract.outboxListDec, { data: [{ id: 3, to: 'x@y', status: 'sent' }] });
+  eq(xs.length, 1); eq(OV.ovTo(xs[0]), 'x@y'); eq(OV.ovStatus(xs[0]), 'sent');
+});
+
 test('login envelope ({"data":{"token":…}} — REAL live shape, Ф4.1 drift find)', () => {
   // live /auth/login envelopes the token like every other response; Ф1.1 wrongly expected bare
   // {"token":…} — Client.login now goes through `envelope (field′ "token" string)`. Same decoder:

@@ -11,6 +11,7 @@
 -- (busy-guarded, reloads the thread on success); per-node replies are site composition.
 module CxmUI.Thread where
 
+open import Agda.Builtin.String using (primStringEquality)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Show using (show)
@@ -54,14 +55,18 @@ updateModel Load m = record m { status = tThreadLoading }
 updateModel (Got (ok ns)) m = record m { nodes = ns ; status = emptyOr tThreadEmpty ns }
 updateModel (Got (err e)) m = record m { status = errText e }
 updateModel (ReplyInput s) m = record m { replyText = s }
-updateModel Reply m = record m { status = tReplying ; busy = true ; replyText = "" }
+-- guard пустого сабмита (аудит-3 №1): пустой коммент виден всем — no-op
+updateModel Reply m =
+  if primStringEquality (replyText m) "" then m
+  else record m { status = tReplying ; busy = true ; replyText = "" }
 updateModel (GotReply (ok _)) m = record m { busy = false }
 updateModel (GotReply (err e)) m = record m { status = errText e ; busy = false }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf Load  m = thread (cfg m) (root m) (limit m) Got
--- cmd видит PRE-update модель — replyText ещё не очищен
-cmdOf Reply m = commentV1 (cfg m) (root m) (root m) (replyText m) GotReply
+-- cmd видит PRE-update модель — replyText ещё не очищен; пустой сабмит = ε
+cmdOf Reply m = if primStringEquality (replyText m) "" then ε
+                else commentV1 (cfg m) (root m) (root m) "" "" (replyText m) GotReply
 cmdOf (GotReply (ok _)) m = thread (cfg m) (root m) (limit m) Got   -- reload after reply
 cmdOf _     _ = ε
 

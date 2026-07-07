@@ -203,6 +203,26 @@
   ЖИВОГО `b.node.value` (каретка в безопасности — пишем только при реальном расхождении).
   forms 20/20, dom 66/66.
 
+## Аудит-3 2026-07-07 — ВСЕ находки закрыты (смоук 28/28, юнит 11+24, refl-тесты)
+- **№1 (баг):** guard пустого сабмита — «добавить наблюдение» и «Ответить» с пустым полем =
+  no-op (update возвращает m, cmd = ε); refl-тесты на оба.
+- **№9 (системное):** Client реструктурирован — **тело каждого запроса = чистая публичная
+  функция** (`…Body`/`…Extra` + `v1Body`, хелперы q/kv), Cmd-биндинги — однострочники поверх.
+  Node-тесты парсят тела как JSON и сверяют имена полей с роутами (4 групповых теста) —
+  опечатка в имени поля теперь ловится юнитом, а не пользователем.
+- **№3–8 (write-остаток добит):** `register`/`verifyIdentity` (онбординг), `bindIdentity`
+  (контакт+verify-письмо), `createOffering`/`deleteOffering` (владелец paywall),
+  `transitionEpisode`+`createProtocol`/`addProtocolState`/`addProtocolTransition` (FSM),
+  `deleteSubject`/`eraseSubject` (GDPR), `openAccount`, `outbox` (+OutboxView в Contract),
+  **promise-market целиком** (create/fulfill/break/offer/transfer/refer/settle/default — Ч.2 §3;
+  виджеты — решение П4). Серверных правок не потребовалось — все роуты были.
+- **№10:** `commentV1` принимает visibility/listing (locked-реплика доступна биндингу);
+  Thread передаёт "" "" (дефолты).
+- **№2:** README — предупреждение: ext_id-счётчик сбрасывается при перемонтаже, префикс обязан
+  быть уникальным на сессию.
+- **Мелочи:** refl-тесты AddObs/Reply-guard/busy + `tKindRu`; юнит на `mintedDec` и
+  `outboxListDec`; README про body-билдеры.
+
 ## Заметки / решения по ходу
 - Ф2.3-хвост ЗАКРЫТ (2026-07-07): `Client.reviseKnowledgeBy` (amount) + кнопки «▲ +50»/«▼ −50»
   (фикс-шаг вместо ввода числа) + **redetail-форма** («✎ детали» → преднаполненный input →

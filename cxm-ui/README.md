@@ -41,7 +41,12 @@ communityFeed = feedApp (mkV1Cfg "" itok "cookie" sid) -- /v1: свой auth, н
 - **Embedding**: `Model`/`Msg`/`updateModel`/`cmdOf`/row-билдеры ПУБЛИЧНЫ — сайт собирает
   свой template и перехватывает Msg (напр., `Bought (ok pid)` из Paywall, или читает
   `lastPayment` из модели после апдейта). `paywallAppWith cfg extIdPrefix` — per-purchase
-  ext_id = `prefix-N` для корреляции с платёжным провайдером.
+  ext_id = `prefix-N`. **⚠ Счётчик N живёт в модели виджета и сбрасывается при перемонтаже
+  (перезагрузка страницы!) — префикс ОБЯЗАН быть уникальным на сессию** (timestamp/session-id),
+  иначе `prefix-1` столкнётся с прошлым визитом (`findPaymentByExtId` вернёт первый).
+- **Body-билдеры**: тело каждого запроса — чистая публичная функция (`registerBody`,
+  `knowledgeBody`, `v1Body`+`…Extra`, …) — их можно тестировать как JSON без HTTP и
+  переиспользовать в своих обёртках; Cmd-биндинги — однострочники поверх них.
 - **limit** (feed/thread/showcase): 0 = всё; N = верхушка серверного порядка. Это «тихий
   срез» без hasMore — настоящая пагинация (курсор) будет отдельным контрактом.
 - **CSS**: виджеты бренд-нейтральны, стилизуются по контрактным классам `cxm-*`

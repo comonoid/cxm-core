@@ -142,7 +142,10 @@ updateModel (GotEvidence _ (err e)) m =
   record m { status = errText e ; evidenceFor = 0 ; evidence = [] }   -- не показывать «пусто» при ошибке
 updateModel CloseEvidence m = record m { evidenceFor = 0 ; evidence = [] }
 updateModel (ObsInput s) m = record m { obsText = s }
-updateModel AddObs m = record m { status = tCardAddingObs ; busy = true ; obsText = "" }
+-- guard пустого сабмита (аудит-3 №1): пустое наблюдение — мусор, no-op
+updateModel AddObs m =
+  if primStringEquality (obsText m) "" then m
+  else record m { status = tCardAddingObs ; busy = true ; obsText = "" }
 updateModel (GotObs (ok _)) m = record m { busy = false }
 updateModel (GotObs (err e)) m = record m { status = errText e ; busy = false }
 
@@ -160,7 +163,8 @@ cmdOf SaveDetail         m = reviseDetail (cfg m) (editing m) (editText m) GotRe
 cmdOf (GotRevise (ok _)) m = knowledgeOf (cfg m) (selected m) (GotKnowledge (selected m))
 -- cmd видит PRE-update модель: клик по уже открытому kid = закрытие → НЕ фетчить
 cmdOf (LoadEvidence kid) m = if kid ≡ᵇ evidenceFor m then ε else evidenceOf (cfg m) kid (GotEvidence kid)
-cmdOf AddObs             m = createKnowledge (cfg m) (selected m) (obsText m) GotObs
+cmdOf AddObs             m = if primStringEquality (obsText m) "" then ε
+                             else createKnowledge (cfg m) (selected m) (obsText m) GotObs
 cmdOf (GotObs (ok _))    m = knowledgeOf (cfg m) (selected m) (GotKnowledge (selected m))
 cmdOf _                  _ = ε
 

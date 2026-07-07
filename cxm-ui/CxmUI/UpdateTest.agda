@@ -18,6 +18,7 @@ open import Agdelte.Core.Result using (ok; err)
 open import CxmUI.Contract
 open import CxmUI.Client using (mkCfg; mkV1Cfg; httpErr)
 open import CxmUI.Widget using (emptyOr)
+open import CxmUI.Text using (tKindRu)
 import CxmUI.ClientCard as C
 import CxmUI.Thread as T
 import CxmUI.Paywall as P
@@ -94,18 +95,48 @@ _ : C.evidenceFor (C.updateModel C.CloseEvidence mEv) ≡ 0
 _ = refl
 
 ------------------------------------------------------------------------
--- Thread: Reply чистит поле и ставит busy; ответ снимает
+-- «Добавить наблюдение»: guard пустого сабмита (аудит-3 №1) + busy-цикл
 ------------------------------------------------------------------------
 
 private
-  tm  = T.updateModel (T.ReplyInput "привет") (T.initModel (mkV1Cfg "" "" "" "") 21 0)
+  mObs = C.updateModel (C.ObsInput "клиент избегает утро") m₇
+
+_ : C.updateModel C.AddObs m₇ ≡ m₇                    -- пустое поле → no-op (мусор не создаём)
+_ = refl
+_ : C.busy (C.updateModel C.AddObs mObs) ≡ true
+_ = refl
+_ : C.obsText (C.updateModel C.AddObs mObs) ≡ ""
+_ = refl
+_ : C.busy (C.updateModel (C.GotObs (ok 9)) (C.updateModel C.AddObs mObs)) ≡ false
+_ = refl
+
+------------------------------------------------------------------------
+-- Thread: Reply — guard пустого, чистит поле, busy-цикл
+------------------------------------------------------------------------
+
+private
+  tm₀ = T.initModel (mkV1Cfg "" "" "" "") 21 0
+  tm  = T.updateModel (T.ReplyInput "привет") tm₀
   tm′ = T.updateModel T.Reply tm
 
+_ : T.updateModel T.Reply tm₀ ≡ tm₀                   -- пустой ответ → no-op
+_ = refl
 _ : T.replyText tm′ ≡ ""
 _ = refl
 _ : T.busy tm′ ≡ true
 _ = refl
 _ : T.busy (T.updateModel (T.GotReply (ok 1)) tm′) ≡ false
+_ = refl
+
+------------------------------------------------------------------------
+-- Text: русские подписи wire-kind'ов (неизвестный — как есть)
+------------------------------------------------------------------------
+
+_ : tKindRu "confirm" ≡ "подтверждение"
+_ = refl
+_ : tKindRu "weaken" ≡ "ослабление"
+_ = refl
+_ : tKindRu "какой-то-новый" ≡ "какой-то-новый"
 _ = refl
 
 ------------------------------------------------------------------------

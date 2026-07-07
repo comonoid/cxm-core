@@ -161,6 +161,28 @@ evidenceListDec : Decoder (List EvidenceView)
 evidenceListDec = list evidenceDec
 
 ------------------------------------------------------------------------
+-- Outbox (GET /outbox) — the operator's delivery ops-view (pending/sent/failed mail)
+------------------------------------------------------------------------
+
+record OutboxView : Set where
+  constructor mkOutboxView
+  field
+    ovId     : ℕ
+    ovTo     : String
+    ovStatus : String   -- pending | sent | failed
+open OutboxView public
+
+outboxDec : Decoder OutboxView
+outboxDec =
+  field′ "id" nat       >>= λ i →
+  field′ "to" string    >>= λ t →
+  field′ "status" string >>= λ st →
+  succeed (mkOutboxView i t st)
+
+outboxListDec : Decoder (List OutboxView)
+outboxListDec = list outboxDec
+
+------------------------------------------------------------------------
 -- Roster (GET /subjects) — the THIN list view (id + name; server projects just these).
 -- A rich subject-detail view returns when the server grows that read (Ф0.4.4).
 -- NB (аудит №8, 2026-07-07): ProfileView/ExperienceView/SubjectView удалены — их роутов на
