@@ -45,7 +45,11 @@ open import Cxm.Tenant using (Tenant; mkTenant; defaultTenant)
 open import Cxm.Subject using (Subject; sId; sDisplayName; sDeletedAt; EXTERNAL; Person)
 open import Cxm.Identity using (Identity; iTenant; iVerified; iChannel; iSubject)
 open import Cxm.Edge using (participation)
-open import Cxm.Expectation using (ExpStatus; ExpMet; ExpUnmet; ExpUnknown; ExpOurPromise)
+open import Cxm.Expectation using
+  ( ExpStatus; ExpMet; ExpUnmet; ExpUnknown; ExpSource; ExpOurPromise; ExpCompetitor; ExpIndustryNorm
+  ; Expectation; xpId; xpSubject; xpTenant; xpTopic; xpSource; xpLevel; xpStatus; xpCreatedAt )
+open import Cxm.Episode using
+  ( Episode; epId; epSubject; epProtocol; epTenant; epCurrentState; epJtbd; epDeletedAt )
 open import Cxm.Appointment using (Appointment; apTenant; apStartsAt; apDurationMin; apStatus; ApptStatus; ApScheduled; ApCanceled; ApCompleted; ApNoShow)
 open import Cxm.Site using (IntTokenRow; itkTenant; itkScope; itkRevokedAt; webhookPayload)
 open import Cxm.Event using (mkExperienceEvent; Integration; Client; View)
@@ -63,7 +67,7 @@ open import Cxm.Users using (User; uTenant; uPassHash; RoleAssignment; raSubject
 open import Cxm.Bus using (OutboxEntry; obTo; obSubject; obBody; obChannel; obAttempts; obTenant; obStatus; OutStatus; OutPending; OutSent; OutFailed)
 open import Cxm.Store.Base using
   ( Err; NotFound; Conflict; Insufficient; InvalidTransition; Forbidden; Invariant
-  ; subjByTenant; knowBySubject; apptBySubject; intTokenByTenant )
+  ; subjByTenant; knowBySubject; apptBySubject; intTokenByTenant; epBySubject; expBySubject )
 open import Cxm.Store.Verbs
 open import Cxm.Store.Pg using (runCxmTx)
 open import Cxm.Store.Registry using (cxmHistory)
@@ -240,6 +244,41 @@ private
       enc (i , a) = "{\"id\":" <> show i <> ",\"start\":" <> show (apStartsAt a)
                     <> ",\"duration\":" <> show (apDurationMin a)
                     <> ",\"status\":" <> str (shAp (apStatus a)) <> "}"
+
+  -- Ф0.4.2: episodes by subject (client card). EpisodeView = id/subject/protocol/state/jtbd; skip soft-deleted.
+  listEpisodes : (ct sid : ℕ) → Tx String
+  listEpisodes ct sid =
+    byIx tcEpisode epBySubject sid >>=T λ ids →
+    getEach tcEpisode ids >>=T λ es →
+    returnT ("[" <> joinComma (map enc (mine es)) <> "]")
+    where
+      mine : List Episode → List Episode
+      mine = foldr (λ e acc → if (epTenant e ≡ᵇ ct) ∧ maybe′ (λ _ → false) true (epDeletedAt e)
+                              then e ∷ acc else acc) []
+      enc : Episode → String
+      enc e = "{\"id\":" <> show (epId e) <> ",\"subject\":" <> show (epSubject e)
+              <> ",\"protocol\":" <> show (epProtocol e) <> ",\"state\":" <> show (epCurrentState e)
+              <> ",\"jtbd\":" <> str (epJtbd e) <> "}"
+
+  -- Ф0.4.3: expectations by subject (expectation-gap). id/subject/topic/source/level/status/createdAt.
+  expSrcStr : ExpSource → String
+  expSrcStr ExpOurPromise = "our_promise" ; expSrcStr ExpCompetitor = "competitor"
+  expSrcStr ExpIndustryNorm = "industry_norm"
+  expStatStr : ExpStatus → String
+  expStatStr ExpMet = "met" ; expStatStr ExpUnmet = "unmet" ; expStatStr ExpUnknown = "unknown"
+  listExpectations : (ct sid : ℕ) → Tx String
+  listExpectations ct sid =
+    byIx tcExpectation expBySubject sid >>=T λ ids →
+    getEach tcExpectation ids >>=T λ xs →
+    returnT ("[" <> joinComma (map enc (mine xs)) <> "]")
+    where
+      mine : List Expectation → List Expectation
+      mine = foldr (λ x acc → if xpTenant x ≡ᵇ ct then x ∷ acc else acc) []
+      enc : Expectation → String
+      enc x = "{\"id\":" <> show (xpId x) <> ",\"subject\":" <> show (xpSubject x)
+              <> ",\"topic\":" <> str (xpTopic x) <> ",\"source\":" <> str (expSrcStr (xpSource x))
+              <> ",\"level\":" <> show (xpLevel x) <> ",\"status\":" <> str (expStatStr (xpStatus x))
+              <> ",\"createdAt\":" <> show (xpCreatedAt x) <> "}"
 
   stOut : OutStatus → String
   stOut OutPending = "pending"
@@ -465,6 +504,10 @@ private
       runW run (reopenAppointmentV (natOr req "id" 0)) okUnit
     else if is m "POST" ∧ is p "/appointments/by-subject" then
       runW run (listAppointments ct (natOr req "subject" 0)) okJson
+    else if is m "POST" ∧ is p "/episodes/by-subject" then
+      runW run (listEpisodes ct (natOr req "subject" 0)) okJson
+    else if is m "POST" ∧ is p "/expectations/by-subject" then
+      runW run (listExpectations ct (natOr req "subject" 0)) okJson
     else if is m "POST" ∧ is p "/expectations" then
       runW run (createExpectationV (natOr req "subject" 0) (fieldOr req "topic" "") ExpOurPromise
                   (natOr req "level" 500) ct now) idJson

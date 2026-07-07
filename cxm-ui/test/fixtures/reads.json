@@ -1,8 +1,10 @@
 {
-  "_note": "REAL cxm-server-pg read responses (captured 2026-07-07). knowledge = full KnowledgeView (Ф0.4.1 enriched, matches knowledgeDec). subjects/appointments still thin; episodes/expectations reads not yet added (Ф0.4.2/0.4.3). See docs/cxm-ui-plan.md.",
-  "GET /subjects":                 {"data":[{"id":4,"name":"Клиент Анна 😀"}]},
-  "POST /knowledge/by-subject":    {"data":[{"id":5,"subject":4,"type":"state","source":"stated","confidence":500,"validFrom":1783429954,"validTo":0,"decay":0,"status":"active","detail":"{\"kind\":\"work_strategy\"}","episode":0}]},
-  "POST /appointments/by-subject": {"data":[{"id":6,"start":5000,"duration":60,"status":"scheduled"}]},
-  "GET /outbox":                   {"data":[]},
-  "GET /integration-tokens":       {"data":[]}
+  "_note": "REAL cxm-server-pg read responses (captured 2026-07-07). knowledge/episodes/expectations enriched to full Contract views (Ф0.4.1–0.4.3) and match knowledgeDec/episodeDec/expectationDec. subjects/appointments still thin (Ф0.4.4 optional). See docs/cxm-ui-plan.md.",
+  "GET /subjects":                  {"data":[{"id":4,"name":"Клиент Анна 😀"}]},
+  "POST /knowledge/by-subject":     {"data":[{"id":5,"subject":4,"type":"state","source":"stated","confidence":500,"validFrom":1783429954,"validTo":0,"decay":0,"status":"active","detail":"{\"kind\":\"work_strategy\"}","episode":0}]},
+  "POST /episodes/by-subject":      {"data":[{"id":6,"subject":4,"protocol":5,"state":100,"jtbd":"адаптация"}]},
+  "POST /expectations/by-subject":  {"data":[{"id":7,"subject":4,"topic":"ответ за 24ч","source":"our_promise","level":800,"status":"unknown","createdAt":1783430212}]},
+  "POST /appointments/by-subject":  {"data":[{"id":6,"start":5000,"duration":60,"status":"scheduled"}]},
+  "GET /outbox":                    {"data":[]},
+  "GET /integration-tokens":        {"data":[]}
 }

@@ -42,11 +42,11 @@
 - [x] 0.4.1 `listKnowledge`-энкодер → полный KnowledgeView (id/subject/type/source/confidence/validFrom/
       validTo/decay/status/detail/episode) — питает блокнот+бейджи. Live ✓, `knowledgeDec` совпал (9/9).
       _(confidence — сырой; decay-on-read Д5 отложен: у клиента есть decay+validFrom → может сам)_
-- [ ] 0.4.2 Добавить `POST /episodes/by-subject` (нужен карточке клиента) + EpisodeView-энкодер
-- [ ] 0.4.3 Добавить `POST /expectations/by-subject` (нужен expectation-gap) + ExpectationView-энкодер
-- [ ] 0.4.4 (опц.) обогатить `/subjects` или добавить `POST /subjects/get` до нужных карточке полей;
-      (опц.) `/profile`-агрегат, если решим агрегировать на сервере
-- [ ] 0.4.5 Перезаснять фикстуры с обогащённого сервера; выверить/поправить декодеры Contract.agda → зелёный contract-тест
+- [x] 0.4.2 `POST /episodes/by-subject` + EpisodeView-энкодер (id/subject/protocol/state/jtbd; skip soft-del). Live ✓ = `episodeDec`
+- [x] 0.4.3 `POST /expectations/by-subject` + ExpectationView-энкодер (id/subject/topic/source/level/status/createdAt). Live ✓ = `expectationDec`
+- [ ] 0.4.4 (опц., НЕ блокер Ф2) обогатить `/subjects` до полей карточки / `/profile`-агрегат — по мере нужды
+- [x] 0.4.5 Фикстуры пересняты (`reads.json`); декодеры Contract уже совпали — contract-тест 9/9 зелёный
+      **⇒ Ф2 (кабинет) РАЗБЛОКИРОВАН: knowledge/episodes/expectations/appointments read'ы дают полные view.**
 
 ## Ф1. Типизированный API-клиент (`CxmUI/Client.agda` + под-модули)
 - [ ] 1.1 `auth`: register/login → JWT; authed-хелпер (`httpPostH` + Bearer); обработка 401/403/409
