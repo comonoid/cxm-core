@@ -149,6 +149,15 @@ ok(slots.length === 2 && slots[0].includes('слот Б') && slots[1].includes('
    `витрина: rank-порядок (Б раньше А), слотов ${slots.length}`);
 ok(!slots.some((s) => s.includes('протухший')), 'витрина: слот с истёкшим validTo исчез (проекция)');
 
+// Ф4.2: пустое состояние — та же витрина с несуществующей полки
+const emptyStage = document.createElement('div');
+document.body.appendChild(emptyStage);
+await runReactiveApp({ app: Showcase.showcaseApp(v1cfg)(999999n) }, emptyStage);
+emptyStage.querySelector('.cxm-load').click();
+await until(() => emptyStage.querySelector('.cxm-status').textContent === 'витрина пуста',
+  'пустое состояние в статусе');
+ok(true, 'Ф4.2: пустая загрузка → статус «витрина пуста» (emptyOr-конвенция)');
+
 // ── Ф3.4: paywall — entitled-пост, покупка в виджете, entitlement открывает контент ─
 // (нужен админ: сервер запущен с PSYCH_ADMIN_LOGIN=admin@dev PSYCH_ADMIN_PASSWORD=adminpass123)
 const Paywall = (await import('../_build/jAgda.CxmUI.Paywall.mjs')).default;

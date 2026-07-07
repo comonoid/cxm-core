@@ -24,6 +24,7 @@ open import Agdelte.Reactive.Node
 
 open import CxmUI.Contract
 open import CxmUI.Client
+open import CxmUI.Widget using (errText; emptyOr; toolbar)
 
 ------------------------------------------------------------------------
 -- Model
@@ -66,33 +67,27 @@ data Msg : Set where
 -- Update (pure) + the effect hook (cmd)
 ------------------------------------------------------------------------
 
-private
-  errStr : CallErr → String
-  errStr (httpErr s)   = "сеть: " ++ s
-  errStr (serverErr e) = "сервер: " ++ aeCode e
-  errStr (decodeErr s) = "разбор: " ++ s
-
 updateModel : Msg → Model → Model
 updateModel LoadRoster m = record m { status = "загрузка списка…" }
-updateModel (GotRoster (ok rs)) m = record m { subjects = rs ; status = "" }
-updateModel (GotRoster (err e)) m = record m { status = errStr e }
+updateModel (GotRoster (ok rs)) m = record m { subjects = rs ; status = emptyOr "клиентов пока нет" rs }
+updateModel (GotRoster (err e)) m = record m { status = errText e }
 updateModel (Select sid) m =
   record m { selected = sid ; knowledge = [] ; episodes = [] ; appointments = [] ; expectations = []
            ; status = "загрузка карточки…" }
-updateModel (GotKnowledge (ok ks)) m = record m { knowledge = ks ; status = "" }
-updateModel (GotKnowledge (err e)) m = record m { status = errStr e }
+updateModel (GotKnowledge (ok ks)) m = record m { knowledge = ks ; status = emptyOr "знаний пока нет" ks }
+updateModel (GotKnowledge (err e)) m = record m { status = errText e }
 updateModel (GotEpisodes (ok es)) m = record m { episodes = es }
-updateModel (GotEpisodes (err e)) m = record m { status = errStr e }
-updateModel (GotAppointments (ok as)) m = record m { appointments = as ; status = "" }
-updateModel (GotAppointments (err e)) m = record m { status = errStr e }
-updateModel (GotExpectations (ok xs)) m = record m { expectations = xs ; status = "" }
-updateModel (GotExpectations (err e)) m = record m { status = errStr e }
+updateModel (GotEpisodes (err e)) m = record m { status = errText e }
+updateModel (GotAppointments (ok as)) m = record m { appointments = as }
+updateModel (GotAppointments (err e)) m = record m { status = errText e }
+updateModel (GotExpectations (ok xs)) m = record m { expectations = xs }
+updateModel (GotExpectations (err e)) m = record m { status = errText e }
 updateModel Rebuild m = record m { status = "перестраиваю вывод…" }
 updateModel (GotRebuild (ok _)) m = record m { status = "вывод перестроен, обновляю знания…" }
-updateModel (GotRebuild (err e)) m = record m { status = errStr e }
+updateModel (GotRebuild (err e)) m = record m { status = errText e }
 updateModel (Revise _ kind) m = record m { status = ("ревизия: " ++ kind ++ "…") }
 updateModel (GotRevise (ok _)) m = record m { status = "ревизия применена, обновляю…" }
-updateModel (GotRevise (err e)) m = record m { status = errStr e }
+updateModel (GotRevise (err e)) m = record m { status = errText e }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf LoadRoster    m = roster (cfg m) GotRoster
@@ -193,9 +188,7 @@ private
 cardTemplate : Node Model Msg
 cardTemplate =
   div (class "cxm-client-card" ∷ [])
-    ( div (class "cxm-toolbar" ∷ [])
-        ( button (onClick LoadRoster ∷ class "cxm-load" ∷ []) [ text "Загрузить" ]
-        ∷ span (class "cxm-status" ∷ []) [ bindF status ] ∷ [] )
+    ( toolbar "Загрузить" LoadRoster status
     ∷ div (class "cxm-cols" ∷ [])
         ( div (class "cxm-roster" ∷ [])
             ( h2 [] [ text "Клиенты" ]

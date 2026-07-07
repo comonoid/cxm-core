@@ -20,6 +20,7 @@ open import Agdelte.Reactive.Node
 
 open import CxmUI.Contract
 open import CxmUI.Client
+open import CxmUI.Widget using (errText; emptyOr; toolbar)
 
 record Model : Set where
   constructor mkModel
@@ -36,16 +37,10 @@ data Msg : Set where
   Load : Msg
   Got  : Result CallErr (List ContentView) → Msg
 
-private
-  errStr : CallErr → String
-  errStr (httpErr s)   = "сеть: " ++ s
-  errStr (serverErr e) = "сервер: " ++ aeCode e
-  errStr (decodeErr s) = "разбор: " ++ s
-
 updateModel : Msg → Model → Model
 updateModel Load m = record m { status = "загрузка ленты…" }
-updateModel (Got (ok xs)) m = record m { items = xs ; status = "" }
-updateModel (Got (err e)) m = record m { status = errStr e }
+updateModel (Got (ok xs)) m = record m { items = xs ; status = emptyOr "лента пуста" xs }
+updateModel (Got (err e)) m = record m { status = errText e }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf Load m = feed (cfg m) Got
@@ -64,9 +59,7 @@ private
 feedTemplate : Node Model Msg
 feedTemplate =
   div (class "cxm-feed" ∷ [])
-    ( div (class "cxm-toolbar" ∷ [])
-        ( button (onClick Load ∷ class "cxm-load" ∷ []) [ text "Обновить" ]
-        ∷ span (class "cxm-status" ∷ []) [ bindF status ] ∷ [] )
+    ( toolbar "Обновить" Load status
     ∷ ul [] ( foreachKeyed items (λ c → show (cnId c)) postRow ∷ [] )
     ∷ [] )
 

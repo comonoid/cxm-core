@@ -22,6 +22,7 @@ open import Agdelte.Reactive.Node
 
 open import CxmUI.Contract
 open import CxmUI.Client
+open import CxmUI.Widget using (errText; emptyOr; toolbar)
 
 record Model : Set where
   constructor mkModel
@@ -40,20 +41,14 @@ data Msg : Set where
   Buy    : ℕ → Msg                       -- offering id
   Bought : Result CallErr ℕ → Msg        -- payment id
 
-private
-  errStr : CallErr → String
-  errStr (httpErr s)   = "сеть: " ++ s
-  errStr (serverErr e) = "сервер: " ++ aeCode e
-  errStr (decodeErr s) = "разбор: " ++ s
-
 updateModel : Msg → Model → Model
 updateModel Load m = record m { status = "загрузка предложений…" }
-updateModel (Got (ok xs)) m = record m { items = xs ; status = "" }
-updateModel (Got (err e)) m = record m { status = errStr e }
+updateModel (Got (ok xs)) m = record m { items = xs ; status = emptyOr "предложений нет" xs }
+updateModel (Got (err e)) m = record m { status = errText e }
 updateModel (Buy off) m = record m { status = ("покупка #" ++ show off ++ "…") }
 updateModel (Bought (ok pid)) m =
   record m { status = ("платёж #" ++ show pid ++ " создан — после оплаты контент откроется") }
-updateModel (Bought (err e)) m = record m { status = errStr e }
+updateModel (Bought (err e)) m = record m { status = errText e }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf Load      m = offeringsV1 (cfg m) Got
@@ -76,9 +71,7 @@ private
 paywallTemplate : Node Model Msg
 paywallTemplate =
   div (class "cxm-paywall" ∷ [])
-    ( div (class "cxm-toolbar" ∷ [])
-        ( button (onClick Load ∷ class "cxm-load" ∷ []) [ text "Обновить" ]
-        ∷ span (class "cxm-status" ∷ []) [ bindF status ] ∷ [] )
+    ( toolbar "Обновить" Load status
     ∷ ul [] ( foreachKeyed items (λ o → show (ofId o)) offerRow ∷ [] )
     ∷ [] )
 

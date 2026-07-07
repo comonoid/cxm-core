@@ -20,6 +20,7 @@ open import Agdelte.Reactive.Node
 
 open import CxmUI.Contract
 open import CxmUI.Client
+open import CxmUI.Widget using (errText; emptyOr; toolbar)
 
 record Model : Set where
   constructor mkModel
@@ -37,16 +38,10 @@ data Msg : Set where
   Load : Msg
   Got  : Result CallErr (List ThreadNodeView) → Msg
 
-private
-  errStr : CallErr → String
-  errStr (httpErr s)   = "сеть: " ++ s
-  errStr (serverErr e) = "сервер: " ++ aeCode e
-  errStr (decodeErr s) = "разбор: " ++ s
-
 updateModel : Msg → Model → Model
 updateModel Load m = record m { status = "загрузка разговора…" }
-updateModel (Got (ok ns)) m = record m { nodes = ns ; status = "" }
-updateModel (Got (err e)) m = record m { status = errStr e }
+updateModel (Got (ok ns)) m = record m { nodes = ns ; status = emptyOr "разговор пуст" ns }
+updateModel (Got (err e)) m = record m { status = errText e }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf Load m = thread (cfg m) (root m) Got
@@ -68,9 +63,7 @@ private
 threadTemplate : Node Model Msg
 threadTemplate =
   div (class "cxm-thread" ∷ [])
-    ( div (class "cxm-toolbar" ∷ [])
-        ( button (onClick Load ∷ class "cxm-load" ∷ []) [ text "Обновить" ]
-        ∷ span (class "cxm-status" ∷ []) [ bindF status ] ∷ [] )
+    ( toolbar "Обновить" Load status
     ∷ ul [] ( foreachKeyed nodes (λ n → show (cnId (tnContent n))) nodeRow ∷ [] )
     ∷ [] )
 
