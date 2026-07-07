@@ -144,6 +144,16 @@ thread c root = postV1 c "/v1/thread" (",\"root\":" ++ show root) threadListDec
 showcase : ∀ {M : Set} → V1Cfg → (from : ℕ) → (Result CallErr (List ContentView) → M) → Cmd M
 showcase c from = postV1 c "/v1/showcase" (",\"from\":" ++ show from) contentListDec
 
+-- Ф3.4: paywall — the live offering list, and purchase-start. The server records a PENDING
+-- payment at ITS price (the client never sends an amount); success arrives via the provider
+-- webhook (/payments/succeed), after which the entitlement unlocks content on the next read.
+offeringsV1 : ∀ {M : Set} → V1Cfg → (Result CallErr (List OfferingView) → M) → Cmd M
+offeringsV1 c = postV1 c "/v1/offerings" "" offeringListDec
+
+purchase : ∀ {M : Set} → V1Cfg → (offering : ℕ) (extId : String) → (Result CallErr ℕ → M) → Cmd M
+purchase c off ext =
+  postV1 c "/v1/purchase" (",\"offering\":" ++ show off ++ ",\"ext_id\":\"" ++ ext ++ "\"") idDec
+
 ------------------------------------------------------------------------
 -- Cabinet writes (return {"ok":true} on success, NOT a data envelope)
 ------------------------------------------------------------------------

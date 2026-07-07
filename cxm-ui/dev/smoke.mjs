@@ -4,9 +4,10 @@
  * кликает «Загрузить» → субъекта в ростере и ждёт реальные серверные round-trip'ы.
  * Визуальную полировку всё равно смотреть глазами в браузере (dev/serve.mjs + /dev/).
  *
- * Пререквизиты: scripts/pg-scratch.sh start + cxm-server-pg на 127.0.0.1:8138
- * (CXM_DEV=1). Сидит сам: register (идемпотентно 409) → login → субъект + 2 знания,
- * одно с kDetail work_strategy → проверяет панель VIII.a.
+ * Пререквизиты: scripts/pg-scratch.sh start + cxm-server-pg на 127.0.0.1:8138 с env
+ * CXM_DEV=1 PSYCH_ADMIN_LOGIN=admin@dev PSYCH_ADMIN_PASSWORD=adminpass123 (админ нужен
+ * paywall-циклу: /payments/succeed = admin:use). Сидит сам: register (идемпотентно 409) →
+ * login → субъект + знания (панель VIII.a) → соц-граф (/v1) → offering/покупка.
  *
  * Run: node dev/smoke.mjs   (из cxm-ui; happy-dom берётся из agdelte/node_modules)
  */
@@ -147,6 +148,36 @@ const slots = [...shStage.querySelectorAll('.cxm-post')].map((s) => s.textConten
 ok(slots.length === 2 && slots[0].includes('слот Б') && slots[1].includes('слот А'),
    `витрина: rank-порядок (Б раньше А), слотов ${slots.length}`);
 ok(!slots.some((s) => s.includes('протухший')), 'витрина: слот с истёкшим validTo исчез (проекция)');
+
+// ── Ф3.4: paywall — entitled-пост, покупка в виджете, entitlement открывает контент ─
+// (нужен админ: сервер запущен с PSYCH_ADMIN_LOGIN=admin@dev PSYCH_ADMIN_PASSWORD=adminpass123)
+const Paywall = (await import('../_build/jAgda.CxmUI.Paywall.mjs')).default;
+const paidRes = (await v1('/v1/publish', { ...idOf('user_id', 'smoke-author'),
+  visibility: 'entitled', listing: 'public', payload: '{"text":"платный урок смоука"}' })).data.id;
+const offId = (await post('/offerings', { kind: 1, price: 50000, currency: 'RUB',
+  metadata: `{"grants":[{"kind":"resource","id":${paidRes}}]}` }, token)).data.id;
+
+const pwStage = document.createElement('div');
+document.body.appendChild(pwStage);
+await runReactiveApp({ app: Paywall.paywallApp(v1cfg) }, pwStage);
+pwStage.querySelector('.cxm-load').click();
+const myOffer = await until(() => pwStage.querySelector(`.cxm-offer-${offId}`), 'офферы загрузились');
+ok(myOffer.querySelector('.cxm-offer-price')?.textContent === '500.00 RUB',
+   'paywall: цена в мажорных единицах (500.00 RUB)');
+
+myOffer.querySelector('.cxm-buy').click();
+await until(() => /платёж #\d+ создан/.test(pwStage.querySelector('.cxm-status').textContent),
+  'покупка создала платёж');
+const payId = pwStage.querySelector('.cxm-status').textContent.match(/платёж #(\d+)/)[1];
+
+// webhook-шаг (админ) → entitlement → контент открывается на следующем чтении
+const admTok = (await post('/auth/login', { login: 'admin@dev', password: 'adminpass123' })).data?.token;
+if (!admTok) { console.error('FATAL: нет админа (PSYCH_ADMIN_LOGIN)'); process.exit(2); }
+await post('/payments/succeed', { id: Number(payId) }, admTok);
+feedStage.querySelector('.cxm-load').click();
+await until(() => [...feedStage.querySelectorAll('.cxm-post')]
+  .some((p) => p.textContent.includes('платный урок смоука')), 'платный пост открылся');
+ok(true, 'paywall-цикл: покупка → succeed → entitlement → контент открылся в ленте');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

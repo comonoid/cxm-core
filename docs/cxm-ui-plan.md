@@ -110,7 +110,14 @@
       серверный, протухший validTo-слот исчезает проекцией. Live-смоук 14/14 (порядок Б-до-А по
       rank, expired слот отсутствует). Фикстура showcase непустая (полка 60), client-тест 12/12.
       Кураторские записи — кабинет владельца, НЕ зрительский виджет.
-- [ ] 3.4 **Paywall/покупка** — entitlement-gated контент + кнопка покупки
+- [x] 3.4 **Paywall/покупка** — сервер: `POST /v1/offerings` (live-офферы тенанта: id/kind/price/
+      currency/metadata — fulfilment-план это данные, не секрет) + `POST /v1/purchase` (PENDING-
+      платёж по СЕРВЕРНОЙ цене, клиент сумму не шлёт; успех — только вебхук `/payments/succeed`,
+      admin:use). Contract: `OfferingView`+`idDec`. Client: `offeringsV1`/`purchase`. Виджет
+      `CxmUI/Paywall.agda`: список офферов (№ + цена в мажорных единицах `showAmount`) + «Купить» →
+      «платёж #N создан…»; контент открывается на следующем чтении (entitlement) — сайт обновляет
+      feed/thread. Live-смоук **16/16**: entitled-пост как тизер → покупка В ВИДЖЕТЕ → админ-succeed
+      → пост открылся в ленте. Смоуку нужен PSYCH_ADMIN_LOGIN/PASSWORD (см. шапку dev/smoke.mjs).
 
 ## Ф4. Дев-харнесс + полировка
 - [x] 4.1 Дев-харнесс (`cxm-ui/dev/`, НЕ продуктовый сайт): `serve.mjs` (статика dev/+_build/+

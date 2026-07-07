@@ -64,6 +64,7 @@ open import Cxm.Knowledge using
   ; Source; OBSERVED; INFERRED; STATED; IMPORTED
   ; KStatus; ACTIVE; CONFIRMED; REFUTED; SUPERSEDED
   ; KRevision; KStrengthen; KWeaken; KConfirm; KRefute; KSupersede; KRedetail )
+open import Cxm.Offering using (Offering; oId; oKind; oPrice; oCurrency; oMetadata; oTenant; oDeletedAt)
 open import Cxm.Users using (User; uTenant; uPassHash; RoleAssignment; raSubject; raRoleId)
 open import Cxm.Bus using (OutboxEntry; obTo; obSubject; obBody; obChannel; obAttempts; obTenant; obStatus; OutStatus; OutPending; OutSent; OutFailed)
 open import Cxm.Store.Base using
@@ -317,6 +318,23 @@ private
       enc : ℕ × IntTokenRow → String
       enc (i , r) = "{\"id\":" <> show i <> ",\"scope\":" <> str (itkScope r)
                     <> ",\"revoked\":" <> (maybe′ (λ _ → "true") "false" (itkRevokedAt r)) <> "}"
+
+  -- cxm-ui Ф3.4: the viewer-facing offering list (paywall buy buttons). Live offerings of the
+  -- token's tenant; metadata is the server-side fulfilment plan — exposed so the site can match
+  -- an offering to the node it unlocks (grants are data, not a secret: possession grants nothing).
+  listOfferingsV1 : (vt : ℕ) → Tx String
+  listOfferingsV1 vt =
+    scan tcOffering >>=T λ os →
+    returnT ("[" <> joinComma (map enc (mine (map proj₂ os))) <> "]")
+    where
+      liveO : Offering → Bool
+      liveO o = maybe′ (λ _ → false) true (oDeletedAt o)
+      mine : List Offering → List Offering
+      mine = foldr (λ o acc → if (oTenant o ≡ᵇ vt) ∧ liveO o then o ∷ acc else acc) []
+      enc : Offering → String
+      enc o = "{\"id\":" <> show (oId o) <> ",\"kind\":" <> show (oKind o)
+              <> ",\"price\":" <> show (oPrice o) <> ",\"currency\":" <> str (oCurrency o)
+              <> ",\"metadata\":" <> str (oMetadata o) <> "}"
 
   -- social reads (bucket D): scan the three graph tables, run the pure Social view function.
   -- fetch+fold now; the hot ones become query-EDSL terms later. viewer 0 = anonymous.
@@ -641,6 +659,17 @@ private
                   (mStr (fieldOr req "listing" "")) (fieldOr req "payload" "{}") [] vt now) idJson
     else if is p "/v1/merge-session" then
       runW run (mergeSessionV (natOr req "provisional" 0) ich iid vt now) okUnit
+    -- cxm-ui Ф3.4 (paywall): viewer-facing offering list + purchase start. Payment success stays
+    -- webhook-authoritative (/payments/succeed, admin) — /v1/purchase only records a PENDING
+    -- payment for the resolved viewer at the SERVER-side price (client sends no amount).
+    else if is p "/v1/offerings" then
+      runW run (listOfferingsV1 vt) okJson
+    else if is p "/v1/purchase" then
+      runW run (require tcOffering (natOr req "offering" 0) NotFound >>=T λ o →
+                guardT ((oTenant o ≡ᵇ vt) ∧ maybe′ (λ _ → false) true (oDeletedAt o)) NotFound >>T
+                resolveOrCreateSubjectV ich iid "" "UTC" vt now >>=T λ buyer →
+                recordPaymentV (fieldOr req "ext_id" "") (oId o) buyer (oPrice o)
+                  (fieldOr req "name" "") (fieldOr req "email" "") vt now) idJson
     else if is p "/v1/feed" then
       runW run (resolveViewer ich iid >>=T λ vw → readFeed now vw) okJson
     else if is p "/v1/thread" then

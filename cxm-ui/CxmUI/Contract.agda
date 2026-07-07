@@ -326,6 +326,38 @@ threadListDec : Decoder (List ThreadNodeView)
 threadListDec = list threadNodeDec
 
 ------------------------------------------------------------------------
+-- Offering (/v1/offerings — Ф3.4 paywall). price is MINOR units (kopecks); metadata is the
+-- server-side fulfilment plan (grants-as-data: {"grants":[{"kind":"resource","id":N}]}) — exposed
+-- so a site can match an offering to the node it unlocks; possession grants nothing.
+------------------------------------------------------------------------
+
+record OfferingView : Set where
+  constructor mkOfferingView
+  field
+    ofId       : ℕ
+    ofKind     : ℕ
+    ofPrice    : ℕ        -- minor units
+    ofCurrency : String
+    ofMetadata : String   -- fulfilment plan JSON (opaque to this layer)
+open OfferingView public
+
+offeringDec : Decoder OfferingView
+offeringDec =
+  field′ "id" nat          >>= λ i →
+  field′ "kind" nat        >>= λ k →
+  field′ "price" nat       >>= λ p →
+  field′ "currency" string >>= λ c →
+  field′ "metadata" string >>= λ md →
+  succeed (mkOfferingView i k p c md)
+
+offeringListDec : Decoder (List OfferingView)
+offeringListDec = list offeringDec
+
+-- write-responses of the {"data":{"id":N}} shape (/v1/purchase and every idJson route)
+idDec : Decoder ℕ
+idDec = field′ "id" nat
+
+------------------------------------------------------------------------
 -- Work strategy (panel VIII.a, Ф2.5) — the CONVENTION decoder for `kvDetail` of a work-strategy
 -- TRAIT (Cxm.Knowledge header, upgrade-план C2): kDetail = {"kind":"work_strategy","sync":…,
 -- "detail_first":…,"handoff_complete_when":…}. The core keeps kDetail opaque (§8.1) and there is

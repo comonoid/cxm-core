@@ -91,6 +91,18 @@ test('envelope + contentListDec (/v1/showcase: rank-asc, locked slot first)', ()
   eq(N(CN.cnId(xs[1])), 21); eq(CN.cnPayload(xs[1]), '{"text":"Привет, лента!"}');
 });
 
+test('envelope + offeringListDec (/v1/offerings: paywall list)', () => {
+  const OF = Contract.OfferingView;
+  const xs = envOk(Contract.offeringListDec, fx['POST /v1/offerings']);
+  eq(xs.length, 1);
+  eq(N(OF.ofId(xs[0])), 94); eq(N(OF.ofPrice(xs[0])), 50000); eq(OF.ofCurrency(xs[0]), 'RUB');
+  eq(OF.ofMetadata(xs[0]), '{"grants":[{"kind":"resource","id":92}]}');
+});
+
+test('envelope + idDec (/v1/purchase → payment id)', () => {
+  eq(N(envOk(Contract.idDec, fx['POST /v1/purchase'])), 95);
+});
+
 test('login envelope ({"data":{"token":…}} — REAL live shape, Ф4.1 drift find)', () => {
   // live /auth/login envelopes the token like every other response; Ф1.1 wrongly expected bare
   // {"token":…} — Client.login now goes through `envelope (field′ "token" string)`. Same decoder:

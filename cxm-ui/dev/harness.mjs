@@ -36,6 +36,14 @@ const WIDGETS = [
       const shelf = window.prompt('id узла-полки витрины', '60') || '0';
       return mod.showcaseApp(ctx.client.mkV1Cfg('')(itok)('user_id')('dev-viewer'))(BigInt(shelf));
     } },
+  { id: 'paywall', title: 'Paywall (Ф3.4)',
+    module: '/_build/jAgda.CxmUI.Paywall.mjs',
+    app: async (mod, ctx) => {
+      const r = await fetch('/integration-tokens', { method: 'POST',
+        headers: { Authorization: 'Bearer ' + ctx.jwt }, body: JSON.stringify({ origin: 'harness' }) });
+      const itok = (await r.json()).data.token;
+      return mod.paywallApp(ctx.client.mkV1Cfg('')(itok)('user_id')('dev-viewer'));
+    } },
 ];
 
 let jwt = sessionStorage.getItem('cxm-jwt') || '';
