@@ -1,0 +1,6 @@
+AUDIT NOTE: this commit also bundled UNRELATED work swept in by `git add -A`:
+- Cxm.AccessPolicy (new) + Cxm.Social canAccess refactor (policy-as-data, RB2)
+- docs/cxm-{access-control,cabinet,community-isolation}-plan.md
+The message describes only the Postgres-only store migration; the access-control
+changes belong to a separate feature. Recorded here rather than rewriting pushed
+history (commit is under several descendants). Lesson: stage deliberately, not -A.
