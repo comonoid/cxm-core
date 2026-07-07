@@ -123,5 +123,30 @@ const lockedNode = thStage.querySelector('.cxm-node-locked');
 ok(lockedNode && lockedNode.textContent.includes('🔒') && !lockedNode.textContent.includes('приватная'),
    'тред: закрытая реплика — тизер-стрип, payload зачищен');
 
+// ── Ф3.3: витрина (полка + link с рангами, протухший validTo-слот исчезает) ─
+const Showcase = (await import('../_build/jAgda.CxmUI.Showcase.mjs')).default;
+const shelf = (await v1('/v1/publish',
+  { ...idOf('user_id', 'smoke-author'), payload: '{"title":"полка"}' })).data.id;
+const itemA = (await v1('/v1/publish',
+  { ...idOf('user_id', 'smoke-author'), payload: '{"text":"слот А"}' })).data.id;
+const itemB = (await v1('/v1/publish',
+  { ...idOf('user_id', 'smoke-author'), payload: '{"text":"слот Б"}' })).data.id;
+const itemGone = (await v1('/v1/publish',
+  { ...idOf('user_id', 'smoke-author'), payload: '{"text":"протухший слот"}' })).data.id;
+const link = (body) => post('/resources/link', body, token);
+await link({ from: shelf, to: itemA, rank: 2 });
+await link({ from: shelf, to: itemB, rank: 1 });
+await link({ from: shelf, to: itemGone, rank: 3, validTo: 1 });   // окно давно закрыто
+
+const shStage = document.createElement('div');
+document.body.appendChild(shStage);
+await runReactiveApp({ app: Showcase.showcaseApp(v1cfg)(BigInt(shelf)) }, shStage);
+shStage.querySelector('.cxm-load').click();
+await until(() => shStage.querySelectorAll('.cxm-post').length >= 2, 'витрина загрузилась');
+const slots = [...shStage.querySelectorAll('.cxm-post')].map((s) => s.textContent);
+ok(slots.length === 2 && slots[0].includes('слот Б') && slots[1].includes('слот А'),
+   `витрина: rank-порядок (Б раньше А), слотов ${slots.length}`);
+ok(!slots.some((s) => s.includes('протухший')), 'витрина: слот с истёкшим validTo исчез (проекция)');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

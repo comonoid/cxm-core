@@ -7,8 +7,8 @@
   "POST /appointments/by-subject":  {"data":[{"id":6,"start":5000,"duration":60,"status":"scheduled"}]},
   "GET /outbox":                    {"data":[]},
   "GET /integration-tokens":        {"data":[]},
-  "_note_v1": "captured 2026-07-07 off live /v1 (x-integration-token gate): publish×2 (второй private+public listing → locked teaser, payload stripped) + follow + comment(parent=21). author/createdAt — Ф1.3 encoder enrichment. showcase [] — linkResourceV не имеет HTTP-роута (Ф3.3 prereq), формы строк = feed (cvEnc).",
+  "_note_v1": "captured 2026-07-07 off live /v1 (x-integration-token gate): publish×2 (второй private+public listing → locked teaser, payload stripped) + follow + comment(parent=21). author/createdAt — Ф1.3 encoder enrichment. showcase: полка 60 ← link(rank1→23, rank2→21) через POST /resources/link (роут добавлен в Ф3.3) — rank-asc, locked-семантика как в фиде.",
   "POST /v1/feed":                  {"data":[{"id":21,"author":19,"createdAt":1783436537,"locked":false,"payload":"{\"text\":\"Привет, лента!\"}"},{"id":23,"author":19,"createdAt":1783436537,"locked":true,"payload":""}]},
   "POST /v1/thread":                {"data":[{"depth":0,"id":21,"author":19,"createdAt":1783436537,"locked":false,"payload":"{\"text\":\"Привет, лента!\"}"},{"depth":1,"id":30,"author":25,"createdAt":1783436589,"locked":false,"payload":"{\"text\":\"ответ в тред 🧵\"}"}]},
-  "POST /v1/showcase":              {"data":[]}
+  "POST /v1/showcase":              {"data":[{"id":23,"author":19,"createdAt":1783436537,"locked":true,"payload":""},{"id":21,"author":19,"createdAt":1783436537,"locked":false,"payload":"{\"text\":\"Привет, лента!\"}"}]}
 }

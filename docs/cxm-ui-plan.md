@@ -104,7 +104,12 @@
       (сайт превращает в рельсу), locked → тизер-стрип «🔒», payload зачищен. Live-смоук 12/12
       (корень + публичный ответ depth-1 + приватная реплика-тизер). Харнесс-запись (root через
       prompt), дев-стили cxm-thread/depth.
-- [ ] 3.3 **Витрина** (showcase) — ранги + validTo-окно
+- [x] 3.3 **Витрина** — сервер-пререквизит закрыт: `POST /resources/link`/`/resources/unlink`
+      (кабинет, Bearer) поверх существовавших linkResourceV/unlinkResourceV. Виджет
+      `CxmUI/Showcase.agda`: `showcaseApp v1cfg shelfId`, строки feed-формы (cxm-post*), rank-asc
+      серверный, протухший validTo-слот исчезает проекцией. Live-смоук 14/14 (порядок Б-до-А по
+      rank, expired слот отсутствует). Фикстура showcase непустая (полка 60), client-тест 12/12.
+      Кураторские записи — кабинет владельца, НЕ зрительский виджет.
 - [ ] 3.4 **Paywall/покупка** — entitlement-gated контент + кнопка покупки
 
 ## Ф4. Дев-харнесс + полировка

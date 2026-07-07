@@ -501,6 +501,13 @@ private
       runW run (gdprEraseSubjectV (natOr req "id" 0) ct now) okUnit
     else if is m "POST" ∧ is p "/edges" then
       runW run (addEdgeV (natOr req "from" 0) (natOr req "to" 0) participation nothing 0 now nothing ct now) idJson
+    -- cxm-ui Ф3.3: curate the showcase — link `to` under showcase node `from` with a rank and an
+    -- optional validTo window (0 = open-ended). linkResourceV existed but had no HTTP surface.
+    else if is m "POST" ∧ is p "/resources/link" then
+      runW run (linkResourceV (natOr req "from" 0) (natOr req "to" 0) (fieldOr req "kind" "showcase")
+                  (natOr req "rank" 0) (mFk (natOr req "validTo" 0)) ct now) idJson
+    else if is m "POST" ∧ is p "/resources/unlink" then
+      runW run (unlinkResourceV (natOr req "link" 0)) okUnit
     else if is m "POST" ∧ is p "/episodes" then
       runW run (createEpisodeV (natOr req "subject" 0) (natOr req "protocol" 0) (fieldOr req "jtbd" "") ct now) idJson
     else if is m "POST" ∧ is p "/episodes/transition" then

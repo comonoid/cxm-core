@@ -84,8 +84,11 @@ test('envelope + threadListDec (/v1/thread: root + reply at depth 1)', () => {
   eq(N(CN.cnAuthor(TN.tnContent(xs[1]))), 25);
 });
 
-test('envelope + contentListDec (/v1/showcase: empty window)', () => {
-  eq(envOk(Contract.contentListDec, fx['POST /v1/showcase']).length, 0);
+test('envelope + contentListDec (/v1/showcase: rank-asc, locked slot first)', () => {
+  const xs = envOk(Contract.contentListDec, fx['POST /v1/showcase']);
+  eq(xs.length, 2);
+  eq(N(CN.cnId(xs[0])), 23); eq(B(CN.cnLocked(xs[0])), true);
+  eq(N(CN.cnId(xs[1])), 21); eq(CN.cnPayload(xs[1]), '{"text":"Привет, лента!"}');
 });
 
 test('login envelope ({"data":{"token":…}} — REAL live shape, Ф4.1 drift find)', () => {
