@@ -7,6 +7,7 @@
  */
 import Client from '../_build/jAgda.CxmUI.Client.mjs';
 import Contract from '../_build/jAgda.CxmUI.Contract.mjs';
+import Widget from '../_build/jAgda.CxmUI.Widget.mjs';
 import JsonMod from '../_build/jAgda.Agdelte.Json.mjs';
 import { readFileSync } from 'node:fs';
 
@@ -48,6 +49,12 @@ test('envelope + appointmentListDec (/appointments/by-subject)', () => {
   const xs = envOk(Contract.appointmentListDec, fx['POST /appointments/by-subject']);
   eq(AV.avStatus(xs[0]), 'scheduled'); eq(N(AV.avDuration(xs[0])), 60);
 });
+test('envelope + evidenceListDec (/knowledge/evidence/by-knowledge — explainability)', () => {
+  const ED = Contract.EvidenceView;
+  const xs = envOk(Contract.evidenceListDec, fx['POST /knowledge/evidence/by-knowledge']);
+  eq(xs.length, 1); eq(N(ED.edvEvent(xs[0])), 365); eq(N(ED.edvKnowledge(xs[0])), 366);
+});
+
 test('envelope error path ({"error":…} → serverErr)', () => {
   const r = matchResult(Client.envelope(null)(Contract.rosterListDec)(JSON.stringify({ error: { code: 'conflict', message: 'conflict' } })));
   if (r.tag !== 'err') throw new Error(`expected err, got ${JSON.stringify(r)}`);
@@ -101,6 +108,32 @@ test('envelope + offeringListDec (/v1/offerings: paywall list)', () => {
 
 test('envelope + idDec (/v1/purchase → payment id)', () => {
   eq(N(envOk(Contract.idDec, fx['POST /v1/purchase'])), 95);
+});
+
+// ── аудит-фиксы: errBody / escJson / showAmount ──────────────────────────────
+test('errBody (4xx body with error envelope → serverErr, else httpErr)', () => {
+  // runtime now hands the 4xx BODY to onErr; errBody recovers the server envelope
+  const asTag = (ce) => ce({ httpErr: () => 'http', serverErr: (e) => 'server:' + Client.ApiErr.aeCode(e), decodeErr: () => 'decode' });
+  eq(asTag(Client.errBody('{"error":{"code":"conflict","message":"conflict"}}')), 'server:conflict');
+  eq(asTag(Client.errBody('HTTP 502')), 'http');
+  eq(asTag(Client.errBody('<html>gateway</html>')), 'http');
+});
+
+test('escJson (quotes/backslash/newline/tab/CR)', () => {
+  eq(Client.escJson('a"b'), 'a\\"b');
+  eq(Client.escJson('a\\b'), 'a\\\\b');
+  eq(Client.escJson('a\nb\tc\rd'), 'a\\nb\\tc\\rd');
+  eq(Client.escJson('чистый текст'), 'чистый текст');
+  // произвольный текст, встроенный в body, остаётся валидным JSON:
+  eq(JSON.parse('{"d":"' + Client.escJson('он сказал: "нет"\n\\конец') + '"}').d,
+     'он сказал: "нет"\n\\конец');
+});
+
+test('showAmount (minor units → two decimals)', () => {
+  eq(Widget.showAmount(50000n), '500.00');
+  eq(Widget.showAmount(5n), '0.05');
+  eq(Widget.showAmount(50n), '0.50');
+  eq(Widget.showAmount(12345n), '123.45');
 });
 
 test('login envelope ({"data":{"token":…}} — REAL live shape, Ф4.1 drift find)', () => {

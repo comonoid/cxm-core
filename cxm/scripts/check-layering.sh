@@ -37,7 +37,15 @@ for m in $L1_L5; do
   [ -n "$hits" ] && bad "G3: $m imports above its layer (pure domain must not touch the store):" "$hits"
 done
 
+# G4 (cxm-ui, аудит 2026-07-07): the widget layer talks HTTP/JSON only — it must never import
+# the Agda core (Cxm.*/PsychCxm.*). The .agda-lib depend list already can't resolve them, but a
+# stray import would only fail at typecheck of that file; guard it here where CI sees it.
+if [ -d ../cxm-ui/CxmUI ]; then
+  hits=$(grep -rlE '^open import (Cxm|PsychCxm)\.' ../cxm-ui/CxmUI --include='*.agda' || true)
+  [ -n "$hits" ] && bad "G4: cxm-ui imports the Agda core (contract layer must stay HTTP-only):" "$hits"
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "✓ layering guards: OK (G1–G3, docs/MODULES.md §2) — Postgres-only"
+  echo "✓ layering guards: OK (G1–G4, docs/MODULES.md §2) — Postgres-only"
 fi
 exit "$fail"

@@ -14,8 +14,8 @@ const N = (x) => Number(x);                                   // nat → BigInt 
 const B = (b) => b({ 'true': () => true, 'false': () => false });
 
 // record field projections live under the record namespace (Contract.<Rec>.<field>)
-const K = Contract.KnowledgeView, P = Contract.ProfileView, X = Contract.ExpectationView,
-      EV = Contract.ExperienceView, ED = Contract.EvidenceView, S = Contract.SubjectView, EP = Contract.EpisodeView;
+const K = Contract.KnowledgeView, X = Contract.ExpectationView,
+      ED = Contract.EvidenceView, EP = Contract.EpisodeView;
 
 let passed = 0, failed = 0;
 const test = (name, fn) => { try { fn(); console.log(`✓ ${name}`); passed++; } catch (e) { console.log(`✗ ${name}: ${e.message}`); failed++; } };
@@ -38,31 +38,15 @@ test('knowledgeDec (FACT forced observed/1000)', () => {
   eq(K.kvType(v), 'fact'); eq(N(K.kvConfidence(v)), 1000); eq(K.kvSource(v), 'observed');
 });
 
-test('profileDec (real /profile aggregate)', () => {
-  const v = decOk(Contract.profileDec, '{"subject":2,"activeKnowledge":3,"activeEpisodes":1,"eventCount":0}');
-  eq(N(P.pvSubject(v)), 2); eq(N(P.pvActiveKnowledge(v)), 3); eq(N(P.pvActiveEpisodes(v)), 1);
-});
-
 test('expectationDec (status = met)', () => {
   const v = decOk(Contract.expectationDec,
     '{"id":10,"subject":6,"topic":"reply","source":"our_promise","level":700,"status":"met","createdAt":1783110055}');
   eq(N(X.xvLevel(v)), 700); eq(X.xvStatus(v), 'met'); eq(X.xvTopic(v), 'reply');
 });
 
-test('experienceDec (touch with isPeak=true)', () => {
-  const v = decOk(Contract.experienceDec,
-    '{"id":7,"subject":6,"counterpart":0,"channel":"internal","actor":"staff","type":"feature_use","timestamp":1783110055,"episode":0,"isPeak":true,"isEnd":false}');
-  eq(EV.evChannel(v), 'internal'); eq(EV.evActor(v), 'staff'); eq(EV.evIsPeak(v), true); eq(EV.evIsEnd(v), false);
-});
-
-test('evidenceDec (chain row)', () => {
-  const v = decOk(Contract.evidenceDec, '{"id":9,"knowledge":8,"event":7,"createdAt":1783110055}');
-  eq(N(ED.edvKnowledge(v)), 8); eq(N(ED.edvEvent(v)), 7);
-});
-
-test('subjectDec (roster row)', () => {
-  const v = decOk(Contract.subjectDec, '{"id":6,"name":"ClientX","email":"","tenant":2,"provisional":false}');
-  eq(S.svName(v), 'ClientX'); eq(N(S.svTenant(v)), 2); eq(S.svProvisional(v), false);
+test('evidenceDec (real /knowledge/evidence/by-knowledge row)', () => {
+  const v = decOk(Contract.evidenceDec, '{"id":367,"knowledge":366,"event":365,"createdAt":1783442268}');
+  eq(N(ED.edvKnowledge(v)), 366); eq(N(ED.edvEvent(v)), 365);
 });
 
 test('episodeDec (line of work)', () => {

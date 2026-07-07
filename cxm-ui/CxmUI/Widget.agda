@@ -7,18 +7,27 @@
 -- widget's empty-message when a load returns [] (via `emptyOr`) — "" otherwise.
 module CxmUI.Widget where
 
+open import Data.Bool using (if_then_else_)
+open import Data.Nat using (ℕ; _<ᵇ_)
+open import Data.Nat.DivMod using (_/_; _%_)
+open import Data.Nat.Show using (show)
 open import Data.String using (String; _++_)
 open import Data.List using (List; []; _∷_; [_])
 
 open import Agdelte.Reactive.Node
 
 open import CxmUI.Client using (CallErr; httpErr; serverErr; decodeErr; aeCode)
+open import CxmUI.Text
 
 -- uniform user-facing error line (was copy-pasted per widget)
 errText : CallErr → String
-errText (httpErr s)   = "сеть: " ++ s
-errText (serverErr e) = "сервер: " ++ aeCode e
-errText (decodeErr s) = "разбор: " ++ s
+errText (httpErr s)   = tErrNet ++ s
+errText (serverErr e) = tErrServer ++ aeCode e
+errText (decodeErr s) = tErrDecode ++ s
+
+-- kopecks → "500.00" (minor units, always two decimals) — money formatting is shared vocabulary
+showAmount : ℕ → String
+showAmount p = show (p / 100) ++ "." ++ (if (p % 100) <ᵇ 10 then "0" else "") ++ show (p % 100)
 
 -- empty-state convention: the given message when the loaded list is empty, "" otherwise
 emptyOr : ∀ {A : Set} → String → List A → String

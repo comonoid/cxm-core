@@ -73,28 +73,6 @@ knowledgeListDec : Decoder (List KnowledgeView)
 knowledgeListDec = list knowledgeDec
 
 ------------------------------------------------------------------------
--- Profile (POST /profile) — the aggregate card header
-------------------------------------------------------------------------
-
-record ProfileView : Set where
-  constructor mkProfileView
-  field
-    pvSubject         : ℕ
-    pvActiveKnowledge : ℕ
-    pvActiveEpisodes  : ℕ
-    pvEventCount      : ℕ
-
-open ProfileView public
-
-profileDec : Decoder ProfileView
-profileDec =
-  field′ "subject" nat         >>= λ s →
-  field′ "activeKnowledge" nat >>= λ ak →
-  field′ "activeEpisodes" nat  >>= λ ae →
-  field′ "eventCount" nat      >>= λ ec →
-  succeed (mkProfileView s ak ae ec)
-
-------------------------------------------------------------------------
 -- Expectation (POST /expectations/by-subject) — layer-II bar + gap status
 ------------------------------------------------------------------------
 
@@ -126,43 +104,6 @@ expectationListDec : Decoder (List ExpectationView)
 expectationListDec = list expectationDec
 
 ------------------------------------------------------------------------
--- Experience event (POST /experience-events/by-subject) — the touch/effort/peak stream
-------------------------------------------------------------------------
-
-record ExperienceView : Set where
-  constructor mkExperienceView
-  field
-    evId          : ℕ
-    evSubject     : ℕ
-    evCounterpart : ℕ
-    evChannel     : String
-    evActor       : String
-    evType        : String
-    evTimestamp   : ℕ
-    evEpisode     : ℕ
-    evIsPeak      : Bool
-    evIsEnd       : Bool
-
-open ExperienceView public
-
-experienceDec : Decoder ExperienceView
-experienceDec =
-  field′ "id" nat           >>= λ i →
-  field′ "subject" nat      >>= λ s →
-  field′ "counterpart" nat  >>= λ cp →
-  field′ "channel" string   >>= λ ch →
-  field′ "actor" string     >>= λ ac →
-  field′ "type" string      >>= λ t →
-  field′ "timestamp" nat    >>= λ ts →
-  field′ "episode" nat      >>= λ ep →
-  field′ "isPeak" bool      >>= λ pk →
-  field′ "isEnd" bool       >>= λ en →
-  succeed (mkExperienceView i s cp ch ac t ts ep pk en)
-
-experienceListDec : Decoder (List ExperienceView)
-experienceListDec = list experienceDec
-
-------------------------------------------------------------------------
 -- Episode (POST /episodes/by-subject, /lines) — a line of work
 ------------------------------------------------------------------------
 
@@ -190,7 +131,8 @@ episodeListDec : Decoder (List EpisodeView)
 episodeListDec = list episodeDec
 
 ------------------------------------------------------------------------
--- Evidence (POST /knowledge/evidence/by-knowledge) — the explainability chain
+-- Evidence (POST /knowledge/evidence/by-knowledge) — the explainability chain: WHY the system
+-- holds a knowledge unit (which events back it). Fed by the notebook's «🔎 почему».
 ------------------------------------------------------------------------
 
 record EvidenceView : Set where
@@ -215,35 +157,10 @@ evidenceListDec : Decoder (List EvidenceView)
 evidenceListDec = list evidenceDec
 
 ------------------------------------------------------------------------
--- Subject (GET /subjects) — the client roster row
-------------------------------------------------------------------------
-
-record SubjectView : Set where
-  constructor mkSubjectView
-  field
-    svId          : ℕ
-    svName        : String
-    svEmail       : String
-    svTenant      : ℕ
-    svProvisional : Bool
-
-open SubjectView public
-
-subjectDec : Decoder SubjectView
-subjectDec =
-  field′ "id" nat          >>= λ i →
-  field′ "name" string     >>= λ n →
-  field′ "email" string    >>= λ e →
-  field′ "tenant" nat      >>= λ t →
-  field′ "provisional" bool >>= λ pr →
-  succeed (mkSubjectView i n e t pr)
-
-subjectListDec : Decoder (List SubjectView)
-subjectListDec = list subjectDec
-
-------------------------------------------------------------------------
 -- Roster (GET /subjects) — the THIN list view (id + name; server projects just these).
--- The full SubjectView above is for a future subject-detail read (Ф0.4.4).
+-- A rich subject-detail view returns when the server grows that read (Ф0.4.4).
+-- NB (аудит №8, 2026-07-07): ProfileView/ExperienceView/SubjectView удалены — их роутов на
+-- pg-сервере НЕТ (фикстуры были WAL-эры); вернуть вместе с реальными читалками.
 ------------------------------------------------------------------------
 
 record RosterView : Set where

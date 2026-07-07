@@ -146,6 +146,33 @@
 - Декодеры + клиент → `agda --js` → `node test/*.mjs` против **реального** JSON сервера (golden-фикстуры).
 - DOM-рендер → только браузер (дев-харнесс Ф4.1), визуально — вне автотестов.
 
+## Аудит 2026-07-07 — ВСЕ находки закрыты (смоук 23/23, юнит 11+18, agdelte-сюит зелёный)
+- **№1 (критично):** рантайм выбрасывал тело non-2xx («HTTP 409»), а сервер шлёт все ошибки
+  4xx-конвертами ⇒ serverErr был мёртв. Фикс: agdelte httpGetH/httpPostH отдают ТЕЛО в onErr
+  (fallback «HTTP N»), `Client.errBody` восстанавливает конверт → «сервер: unauthorized» (смоук).
+- **№2–3 (карточка):** `Select` сбрасывает redetail-форму и evidence (нет кросс-субъектных
+  записей); `Got*` несут subject и дропаются, если оператор уже переключился (`ifCurrent`) —
+  стейл-гонка закрыта конструктивно.
+- **№4:** `busy`-флаг в ClientCard/Paywall — кнопки записи (ревизии/Rebuild/Save/Купить)
+  дизейблятся на время полёта (`disabledBind`), дабл-сабмитов нет.
+- **№5:** `escJson` расширен (\t/\r) и применён ко ВСЕМ интерполяциям (identity, ext_id).
+- **№6–7:** ревизии скрыты у refuted/superseded (осталась «🔎 почему»); Rebuild скрыт при
+  невыбранном клиенте.
+- **№8:** мёртвые декодеры (Profile/Experience/Subject) УДАЛЕНЫ (роутов нет; вернуть с реальными
+  читалками); **evidence-читалка ДОБАВЛЕНА** (сервер `POST /knowledge/evidence/by-knowledge` +
+  `Client.evidenceOf` + «🔎 почему»-панель в блокноте — explainability живьём, смоук: событие #N).
+- **№9:** неиспользуемые фикстуры outbox/integration-tokens удалены; evidence-фикстура живая.
+- **№10 (дизайн):** виджеты открыты сайту — row-билдеры/Model/Msg/update/cmdOf ПУБЛИЧНЫ,
+  `feedAppWith`/`threadAppWith`/`showcaseAppWith` принимают payload-рендерер (verbatim = дефолт),
+  Paywall: `lastPayment` в модели (сайт читает id для провайдера) + `extId` при маунте.
+- **№11:** ВСЕ строки собраны в `CxmUI/Text.agda` (одна точка локали; I18n-параметризация — со
+  вторым языком).
+- **№12:** опциональный `limit` (0 = всё) в feed/thread/showcase насквозь (сервер `capL` +
+  Client + Model виджетов) — совместимое зерно пагинации; live: limit=1 → 1 ряд.
+- **Мелочи:** showcase-ряд показывает createdAt; `check-layering.sh` G4 (cxm-ui не импортирует
+  ядро); node-тесты на `errBody`/`escJson`/`showAmount`; `showAmount` переехал в Widget;
+  дев-стили evidence-панели и :disabled.
+
 ## Заметки / решения по ходу
 - Ф2.3-хвост ЗАКРЫТ (2026-07-07): `Client.reviseKnowledgeBy` (amount) + кнопки «▲ +50»/«▼ −50»
   (фикс-шаг вместо ввода числа) + **redetail-форма** («✎ детали» → преднаполненный input →

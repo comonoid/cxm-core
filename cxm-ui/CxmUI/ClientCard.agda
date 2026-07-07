@@ -4,12 +4,21 @@
 -- self-contained reactive Model/update/view over CxmUI.Client: a subject roster on the left;
 -- picking one loads its knowledge (with epistemic badges), episodes and appointments. Effects
 -- go through the `cmd` hook (Client calls return `Cmd Msg`); DOM is agdelte-reactive (no VDOM).
--- Brand-neutral — a site supplies theme/layout and mounts `clientCardApp cfg`.
+-- Brand-neutral — a site supplies theme/layout and mounts `clientCardApp cfg`, or composes its
+-- own: `Model`/`Msg`/`updateModel`/`cmdOf` and the row builders are PUBLIC, so a custom template
+-- can reuse the pieces (`mkReactiveApp (initModel cfg) updateModel myTemplate cmdOf (λ _ → never)`).
+--
+-- Consistency contracts (аудит 2026-07-07):
+--   * batch responses carry their subject and are DROPPED if the operator switched away
+--     (stale-response race) — `Got*` msgs are tagged, update checks against `selected`;
+--   * `Select` resets ALL per-subject state incl. the redetail form (no cross-subject writes);
+--   * write actions set `busy` until their response lands — buttons are disabled meanwhile
+--     (no double submits).
 module CxmUI.ClientCard where
 
 open import Agda.Builtin.Unit using (⊤)
 open import Agda.Builtin.String using (primStringEquality)
-open import Data.Bool using (Bool; true; false; not; _∨_; if_then_else_)
+open import Data.Bool using (Bool; true; false; not; _∨_; _∧_; if_then_else_)
 open import Data.Nat using (ℕ; _≡ᵇ_)
 open import Data.Nat.Show using (show)
 open import Data.String using (String; _++_; intersperse)
@@ -24,6 +33,7 @@ open import Agdelte.Reactive.Node
 
 open import CxmUI.Contract
 open import CxmUI.Client
+open import CxmUI.Text
 open import CxmUI.Widget using (errText; emptyOr; toolbar)
 
 ------------------------------------------------------------------------
@@ -43,23 +53,27 @@ record Model : Set where
     status       : String               -- transient status / error line
     editing      : ℕ                    -- knowledge id под redetail-формой (0 = закрыта)
     editText     : String               -- текст формы
+    busy         : Bool                 -- write in flight → кнопки записи выключены
+    evidenceFor  : ℕ                    -- knowledge id раскрытой evidence-панели (0 = скрыта)
+    evidence     : List EvidenceView
 open Model public
 
 initModel : Cfg → Model
-initModel c = mkModel c [] 0 [] [] [] [] "нажми «Загрузить» — список клиентов" 0 ""
+initModel c = mkModel c [] 0 [] [] [] [] tCardHint 0 "" false 0 []
 
 ------------------------------------------------------------------------
--- Messages
+-- Messages. Got* carry the subject they were requested FOR — update drops
+-- late responses of a subject the operator already switched away from.
 ------------------------------------------------------------------------
 
 data Msg : Set where
   LoadRoster     : Msg
   GotRoster      : Result CallErr (List RosterView) → Msg
   Select         : ℕ → Msg
-  GotKnowledge   : Result CallErr (List KnowledgeView) → Msg
-  GotEpisodes    : Result CallErr (List EpisodeView) → Msg
-  GotAppointments : Result CallErr (List AppointmentView) → Msg
-  GotExpectations : Result CallErr (List ExpectationView) → Msg
+  GotKnowledge   : ℕ → Result CallErr (List KnowledgeView) → Msg
+  GotEpisodes    : ℕ → Result CallErr (List EpisodeView) → Msg
+  GotAppointments : ℕ → Result CallErr (List AppointmentView) → Msg
+  GotExpectations : ℕ → Result CallErr (List ExpectationView) → Msg
   Rebuild        : Msg                                    -- rebuild inference for the selected subject
   GotRebuild     : Result CallErr ⊤ → Msg
   Revise         : ℕ → String → Msg                       -- (knowledge id, kind) — Ф2.3
@@ -69,175 +83,218 @@ data Msg : Set where
   SaveDetail     : Msg
   CancelEdit     : Msg
   GotRevise      : Result CallErr ⊤ → Msg
+  LoadEvidence   : ℕ → Msg                                -- «🔎 почему» (explainability chain)
+  GotEvidence    : ℕ → Result CallErr (List EvidenceView) → Msg
 
 ------------------------------------------------------------------------
 -- Update (pure) + the effect hook (cmd)
 ------------------------------------------------------------------------
 
+private
+  -- accept a tagged response only if it is still about the selected subject
+  ifCurrent : ℕ → Model → Model → Model
+  ifCurrent sid m m' = if sid ≡ᵇ selected m then m' else m
+
 updateModel : Msg → Model → Model
-updateModel LoadRoster m = record m { status = "загрузка списка…" }
-updateModel (GotRoster (ok rs)) m = record m { subjects = rs ; status = emptyOr "клиентов пока нет" rs }
+updateModel LoadRoster m = record m { status = tCardLoadingRoster }
+updateModel (GotRoster (ok rs)) m = record m { subjects = rs ; status = emptyOr tCardNoClients rs }
 updateModel (GotRoster (err e)) m = record m { status = errText e }
 updateModel (Select sid) m =
   record m { selected = sid ; knowledge = [] ; episodes = [] ; appointments = [] ; expectations = []
-           ; status = "загрузка карточки…" }
-updateModel (GotKnowledge (ok ks)) m = record m { knowledge = ks ; status = emptyOr "знаний пока нет" ks }
-updateModel (GotKnowledge (err e)) m = record m { status = errText e }
-updateModel (GotEpisodes (ok es)) m = record m { episodes = es }
-updateModel (GotEpisodes (err e)) m = record m { status = errText e }
-updateModel (GotAppointments (ok as)) m = record m { appointments = as }
-updateModel (GotAppointments (err e)) m = record m { status = errText e }
-updateModel (GotExpectations (ok xs)) m = record m { expectations = xs }
-updateModel (GotExpectations (err e)) m = record m { status = errText e }
-updateModel Rebuild m = record m { status = "перестраиваю вывод…" }
-updateModel (GotRebuild (ok _)) m = record m { status = "вывод перестроен, обновляю знания…" }
-updateModel (GotRebuild (err e)) m = record m { status = errText e }
-updateModel (Revise _ kind) m = record m { status = ("ревизия: " ++ kind ++ "…") }
-updateModel (ReviseBy _ kind _) m = record m { status = ("ревизия: " ++ kind ++ "…") }
+           ; status = tCardLoadingCard ; editing = 0 ; editText = "" ; evidenceFor = 0 ; evidence = [] }
+updateModel (GotKnowledge sid (ok ks)) m =
+  ifCurrent sid m (record m { knowledge = ks ; status = emptyOr tCardNoKnowledge ks })
+updateModel (GotKnowledge sid (err e)) m = ifCurrent sid m (record m { status = errText e })
+updateModel (GotEpisodes sid (ok es)) m = ifCurrent sid m (record m { episodes = es })
+updateModel (GotEpisodes sid (err e)) m = ifCurrent sid m (record m { status = errText e })
+updateModel (GotAppointments sid (ok as)) m = ifCurrent sid m (record m { appointments = as })
+updateModel (GotAppointments sid (err e)) m = ifCurrent sid m (record m { status = errText e })
+updateModel (GotExpectations sid (ok xs)) m = ifCurrent sid m (record m { expectations = xs })
+updateModel (GotExpectations sid (err e)) m = ifCurrent sid m (record m { status = errText e })
+updateModel Rebuild m = record m { status = tCardRebuilding ; busy = true }
+updateModel (GotRebuild (ok _)) m = record m { status = tCardRebuilt ; busy = false }
+updateModel (GotRebuild (err e)) m = record m { status = errText e ; busy = false }
+updateModel (Revise _ kind) m = record m { status = tCardRevising ++ kind ++ tEllipsis ; busy = true }
+updateModel (ReviseBy _ kind _) m = record m { status = tCardRevising ++ kind ++ tEllipsis ; busy = true }
 updateModel (EditDetail kid cur) m = record m { editing = kid ; editText = cur }
 updateModel (EditInput s) m = record m { editText = s }
-updateModel SaveDetail m = record m { status = "сохраняю детали…" }
+updateModel SaveDetail m = record m { status = tCardSavingDetail ; busy = true }
 updateModel CancelEdit m = record m { editing = 0 ; editText = "" }
-updateModel (GotRevise (ok _)) m = record m { status = "ревизия применена, обновляю…" ; editing = 0 }
-updateModel (GotRevise (err e)) m = record m { status = errText e }
+updateModel (GotRevise (ok _)) m = record m { status = tCardRevised ; editing = 0 ; busy = false }
+updateModel (GotRevise (err e)) m = record m { status = errText e ; busy = false }
+updateModel (LoadEvidence kid) m = record m { evidenceFor = kid ; evidence = [] ; status = tCardLoadingEvidence }
+updateModel (GotEvidence kid (ok es)) m =
+  if kid ≡ᵇ evidenceFor m then record m { evidence = es ; status = "" } else m
+updateModel (GotEvidence _ (err e)) m = record m { status = errText e }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf LoadRoster    m = roster (cfg m) GotRoster
-cmdOf (Select sid)  m = batch ( knowledgeOf    (cfg m) sid GotKnowledge
-                              ∷ episodesOf     (cfg m) sid GotEpisodes
-                              ∷ appointmentsOf (cfg m) sid GotAppointments
-                              ∷ expectationsOf (cfg m) sid GotExpectations ∷ [] )
+cmdOf (Select sid)  m = batch ( knowledgeOf    (cfg m) sid (GotKnowledge sid)
+                              ∷ episodesOf     (cfg m) sid (GotEpisodes sid)
+                              ∷ appointmentsOf (cfg m) sid (GotAppointments sid)
+                              ∷ expectationsOf (cfg m) sid (GotExpectations sid) ∷ [] )
 cmdOf Rebuild            m = rebuildInference (cfg m) (selected m) GotRebuild
-cmdOf (GotRebuild (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge   -- reload after rebuild
+cmdOf (GotRebuild (ok _)) m = knowledgeOf (cfg m) (selected m) (GotKnowledge (selected m))
 cmdOf (Revise kid kind)  m = reviseKnowledge (cfg m) kid kind GotRevise
 cmdOf (ReviseBy kid kind amt) m = reviseKnowledgeBy (cfg m) kid kind amt GotRevise
 cmdOf SaveDetail         m = reviseDetail (cfg m) (editing m) (editText m) GotRevise
-cmdOf (GotRevise (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge    -- reload after revision
+cmdOf (GotRevise (ok _)) m = knowledgeOf (cfg m) (selected m) (GotKnowledge (selected m))
+cmdOf (LoadEvidence kid) m = evidenceOf (cfg m) kid (GotEvidence kid)
 cmdOf _                  _ = ε
 
 ------------------------------------------------------------------------
--- View
+-- View (row builders are PUBLIC — sites compose custom templates from them)
+------------------------------------------------------------------------
+
+-- one roster entry → a clickable button
+rosterRow : RosterView → ℕ → Node Model Msg
+rosterRow r _ = li [ class "cxm-roster-row" ]
+  [ button (onClick (Select (rvId r)) ∷ class "cxm-roster-btn" ∷ [])
+      [ text (rvName r) ] ]
+
+revBtn : ℕ → String → String → Node Model Msg
+revBtn kid kind label =
+  button (onClick (Revise kid kind) ∷ disabledBind busy ∷ class ("cxm-rev cxm-rev-" ++ kind) ∷ [])
+    [ text label ]
+
+private
+  -- revision moves apply to LIVE envelopes; refuted/superseded are history (server would 409)
+  liveStatus : KnowledgeView → Bool
+  liveStatus k = not (primStringEquality (kvStatus k) "refuted"
+                      ∨ primStringEquality (kvStatus k) "superseded")
+
+-- one knowledge unit → epistemic badge (type + status) + confidence + opaque detail (Ф2.2)
+knowRow : KnowledgeView → ℕ → Node Model Msg
+knowRow k _ = li (class ("cxm-know cxm-know-" ++ kvType k) ∷ [])
+  ( span (class ("cxm-badge cxm-badge-" ++ kvType k) ∷ []) [ text (kvType k) ]
+  ∷ span (class ("cxm-badge cxm-status-" ++ kvStatus k) ∷ []) [ text (kvStatus k) ]
+  ∷ span (class "cxm-conf" ∷ []) [ text ("‰" ++ show (kvConfidence k)) ]
+  ∷ span (class "cxm-detail" ∷ []) [ text (kvDetail k) ]
+  ∷ (if liveStatus k
+      then span (class "cxm-rev-actions" ∷ [])
+        ( revBtn (kvId k) "confirm"   tCardConfirm
+        ∷ revBtn (kvId k) "refute"    tCardRefute
+        ∷ revBtn (kvId k) "supersede" tCardSupersede
+        ∷ button (onClick (ReviseBy (kvId k) "strengthen" 50) ∷ disabledBind busy
+                  ∷ class "cxm-rev cxm-rev-strengthen" ∷ []) [ text tCardStrengthen ]
+        ∷ button (onClick (ReviseBy (kvId k) "weaken" 50) ∷ disabledBind busy
+                  ∷ class "cxm-rev cxm-rev-weaken" ∷ []) [ text tCardWeaken ]
+        ∷ button (onClick (EditDetail (kvId k) (kvDetail k)) ∷ disabledBind busy
+                  ∷ class "cxm-rev cxm-rev-redetail" ∷ []) [ text tCardRedetail ]
+        ∷ button (onClick (LoadEvidence (kvId k)) ∷ class "cxm-rev cxm-rev-why" ∷ [])
+            [ text tCardWhy ] ∷ [] )
+      else span (class "cxm-rev-actions" ∷ [])
+        [ button (onClick (LoadEvidence (kvId k)) ∷ class "cxm-rev cxm-rev-why" ∷ [])
+            [ text tCardWhy ] ])
+  ∷ [] )
+
+-- Ф2.3-хвост: redetail-форма (одна на карточку; editing = kid). Текст уходит JSON-экранированным.
+editPanel : Node Model Msg
+editPanel = div (class "cxm-edit-detail" ∷ [])
+  ( input (valueBind editText ∷ onInput EditInput ∷ class "cxm-edit-input" ∷ [])
+  ∷ button (onClick SaveDetail ∷ disabledBind busy ∷ class "cxm-edit-save" ∷ [])
+      [ text tCardSaveDetail ]
+  ∷ button (onClick CancelEdit ∷ class "cxm-edit-cancel" ∷ []) [ text tCardCancel ]
+  ∷ [] )
+
+-- explainability (аудит №8): the evidence chain behind the opened knowledge unit
+evRow : EvidenceView → ℕ → Node Model Msg
+evRow e _ = li (class "cxm-evidence" ∷ [])
+  [ text (tCardEvidenceRow ++ show (edvEvent e)) ]
+
+evidencePanel : Node Model Msg
+evidencePanel = div (class "cxm-evidence-panel" ∷ [])
+  ( h3 [] [ text tCardWhyHead ]
+  ∷ bindF (λ m → emptyOr tCardNoEvidence (evidence m))
+  ∷ ul [] ( foreachKeyed evidence (λ e → show (edvId e)) evRow ∷ [] )
+  ∷ [] )
+
+epRow : EpisodeView → ℕ → Node Model Msg
+epRow e _ = li (class "cxm-episode" ∷ [])
+  [ text (tCardEpisode ++ show (epvId e) ++ tCardEpState ++ show (epvState e) ++ " · " ++ epvJtbd e) ]
+
+apRow : AppointmentView → ℕ → Node Model Msg
+apRow a _ = li (class ("cxm-appt cxm-appt-" ++ avStatus a) ∷ [])
+  [ text (tCardBooking ++ show (avId a) ++ " · " ++ show (avDuration a) ++ tCardMin ++ avStatus a) ]
+
+------------------------------------------------------------------------
+-- Панель VIII.a (Ф2.5): «как достучаться» — work-strategy traits of the selected subject,
+-- decoded from opaque kvDetail by Contract.parseWorkStrategy and rendered as a human phrase.
+-- Refuted/superseded envelopes are history (the notebook shows them), not adaptation hints —
+-- the panel hides them. Progressive disclosure (Concept §VIII.a): no strategies → no panel.
 ------------------------------------------------------------------------
 
 private
-  -- one roster entry → a clickable button
-  rosterRow : RosterView → ℕ → Node Model Msg
-  rosterRow r _ = li [ class "cxm-roster-row" ]
-    [ button (onClick (Select (rvId r)) ∷ class "cxm-roster-btn" ∷ [])
-        [ text (rvName r) ] ]
-
-  -- one knowledge unit → epistemic badge (type + status) + confidence + opaque detail (Ф2.2)
-  revBtn : ℕ → String → String → Node Model Msg
-  revBtn kid kind label =
-    button (onClick (Revise kid kind) ∷ class ("cxm-rev cxm-rev-" ++ kind) ∷ []) [ text label ]
-
-  knowRow : KnowledgeView → ℕ → Node Model Msg
-  knowRow k _ = li (class ("cxm-know cxm-know-" ++ kvType k) ∷ [])
-    ( span (class ("cxm-badge cxm-badge-" ++ kvType k) ∷ []) [ text (kvType k) ]
-    ∷ span (class ("cxm-badge cxm-status-" ++ kvStatus k) ∷ []) [ text (kvStatus k) ]
-    ∷ span (class "cxm-conf" ∷ []) [ text ("‰" ++ show (kvConfidence k)) ]
-    ∷ span (class "cxm-detail" ∷ []) [ text (kvDetail k) ]
-    ∷ span (class "cxm-rev-actions" ∷ [])
-        ( revBtn (kvId k) "confirm"   "✓ подтвердить"
-        ∷ revBtn (kvId k) "refute"    "✗ опровергнуть"
-        ∷ revBtn (kvId k) "supersede" "⤳ заменить"
-        -- Ф2.3-хвост: amount-ревизии фиксированным шагом ‰50 (без ввода числа)
-        ∷ button (onClick (ReviseBy (kvId k) "strengthen" 50) ∷ class "cxm-rev cxm-rev-strengthen" ∷ [])
-            [ text "▲ +50" ]
-        ∷ button (onClick (ReviseBy (kvId k) "weaken" 50) ∷ class "cxm-rev cxm-rev-weaken" ∷ [])
-            [ text "▼ −50" ]
-        ∷ button (onClick (EditDetail (kvId k) (kvDetail k)) ∷ class "cxm-rev cxm-rev-redetail" ∷ [])
-            [ text "✎ детали" ] ∷ [] )
-    ∷ [] )
-
-  -- Ф2.3-хвост: redetail-форма (одна на карточку; editing = kid). Текст уходит JSON-экранированным.
-  editPanel : Node Model Msg
-  editPanel = div (class "cxm-edit-detail" ∷ [])
-    ( input (valueBind editText ∷ onInput EditInput ∷ class "cxm-edit-input" ∷ [])
-    ∷ button (onClick SaveDetail ∷ class "cxm-edit-save" ∷ []) [ text "Сохранить детали" ]
-    ∷ button (onClick CancelEdit ∷ class "cxm-edit-cancel" ∷ []) [ text "Отмена" ]
-    ∷ [] )
-
-  epRow : EpisodeView → ℕ → Node Model Msg
-  epRow e _ = li (class "cxm-episode" ∷ [])
-    [ text ("эпизод #" ++ show (epvId e) ++ " · состояние " ++ show (epvState e) ++ " · " ++ epvJtbd e) ]
-
-  apRow : AppointmentView → ℕ → Node Model Msg
-  apRow a _ = li (class ("cxm-appt cxm-appt-" ++ avStatus a) ∷ [])
-    [ text ("бронь #" ++ show (avId a) ++ " · " ++ show (avDuration a) ++ " мин · " ++ avStatus a) ]
-
-  -- Панель VIII.a (Ф2.5): «как достучаться» — work-strategy traits of the selected subject,
-  -- decoded from opaque kvDetail by Contract.parseWorkStrategy and rendered as a human phrase.
-  -- Refuted/superseded envelopes are history (the notebook shows them), not adaptation hints —
-  -- the panel hides them. Progressive disclosure (Concept §VIII.a): no strategies → no panel.
   optTxt : ∀ {A : Set} → (A → String) → Maybe A → List String → List String
   optTxt f (just a) rest = f a ∷ rest
   optTxt f nothing  rest = rest
 
   syncTxt : Bool → String
-  syncTxt true  = "синхронно"
-  syncTxt false = "асинхронно"
+  syncTxt true  = tWsSync
+  syncTxt false = tWsAsync
 
   dfTxt : Bool → String
-  dfTxt true  = "сначала детали"
-  dfTxt false = "сначала общая картина"
+  dfTxt true  = tWsDetailFirst
+  dfTxt false = tWsPictureFirst
 
-  wsText : WorkStrategyView → String
-  wsText w with optTxt syncTxt (wsSync w)
-                 (optTxt dfTxt (wsDetailFirst w)
-                   (optTxt (λ h → "хэндофф полон: " ++ h) (wsHandoff w) []))
-  ... | [] = "стратегия без параметров"
-  ... | bs = intersperse " · " bs
+wsText : WorkStrategyView → String
+wsText w with optTxt syncTxt (wsSync w)
+               (optTxt dfTxt (wsDetailFirst w)
+                 (optTxt (λ h → tWsHandoff ++ h) (wsHandoff w) []))
+... | [] = tWsBare
+... | bs = intersperse " · " bs
 
+private
   liveWS : KnowledgeView → Maybe (KnowledgeView × WorkStrategyView)
   liveWS k with parseWorkStrategy (kvDetail k)
   ... | nothing = nothing
-  ... | just w  =
-    if primStringEquality (kvStatus k) "refuted" ∨ primStringEquality (kvStatus k) "superseded"
-      then nothing else just (k , w)
+  ... | just w  = if liveStatus k then just (k , w) else nothing
 
-  strategies : Model → List (KnowledgeView × WorkStrategyView)
-  strategies m = mapMaybe liveWS (knowledge m)
+strategies : Model → List (KnowledgeView × WorkStrategyView)
+strategies m = mapMaybe liveWS (knowledge m)
 
-  wsRow : KnowledgeView × WorkStrategyView → ℕ → Node Model Msg
-  wsRow (k , w) _ = li (class "cxm-ws" ∷ [])
-    ( span (class ("cxm-badge cxm-badge-" ++ kvType k) ∷ []) [ text (kvType k) ]
-    ∷ span (class "cxm-ws-text" ∷ []) [ text (wsText w) ]
-    ∷ span (class "cxm-conf" ∷ []) [ text ("‰" ++ show (kvConfidence k)) ]
-    ∷ [] )
+wsRow : KnowledgeView × WorkStrategyView → ℕ → Node Model Msg
+wsRow (k , w) _ = li (class "cxm-ws" ∷ [])
+  ( span (class ("cxm-badge cxm-badge-" ++ kvType k) ∷ []) [ text (kvType k) ]
+  ∷ span (class "cxm-ws-text" ∷ []) [ text (wsText w) ]
+  ∷ span (class "cxm-conf" ∷ []) [ text ("‰" ++ show (kvConfidence k)) ]
+  ∷ [] )
 
-  -- expectation-gap (Ф2.6): topic + gap signal (met/unmet/unknown) + level; cxm-exp-<status> for CSS
-  xpRow : ExpectationView → ℕ → Node Model Msg
-  xpRow x _ = li (class ("cxm-exp cxm-exp-" ++ xvStatus x) ∷ [])
-    ( span (class ("cxm-badge cxm-exp-" ++ xvStatus x) ∷ []) [ text (xvStatus x) ]
-    ∷ span (class "cxm-exp-topic" ∷ []) [ text (xvTopic x) ]
-    ∷ span (class "cxm-exp-level" ∷ []) [ text ("уровень " ++ show (xvLevel x)) ]
-    ∷ [] )
+-- expectation-gap (Ф2.6): topic + gap signal (met/unmet/unknown) + level; cxm-exp-<status> for CSS
+xpRow : ExpectationView → ℕ → Node Model Msg
+xpRow x _ = li (class ("cxm-exp cxm-exp-" ++ xvStatus x) ∷ [])
+  ( span (class ("cxm-badge cxm-exp-" ++ xvStatus x) ∷ []) [ text (xvStatus x) ]
+  ∷ span (class "cxm-exp-topic" ∷ []) [ text (xvTopic x) ]
+  ∷ span (class "cxm-exp-level" ∷ []) [ text (tCardLevel ++ show (xvLevel x)) ]
+  ∷ [] )
 
 cardTemplate : Node Model Msg
 cardTemplate =
   div (class "cxm-client-card" ∷ [])
-    ( toolbar "Загрузить" LoadRoster status
+    ( toolbar tLoad LoadRoster status
     ∷ div (class "cxm-cols" ∷ [])
         ( div (class "cxm-roster" ∷ [])
-            ( h2 [] [ text "Клиенты" ]
+            ( h2 [] [ text tCardClients ]
             ∷ ul [] ( foreachKeyed subjects (λ r → show (rvId r)) rosterRow ∷ [] ) ∷ [] )
         ∷ div (class "cxm-card" ∷ [])
             ( div (class "cxm-section" ∷ [])
                 ( div (class "cxm-section-head" ∷ [])
-                    ( h2 [] [ text "Знания" ]
-                    ∷ button (onClick Rebuild ∷ class "cxm-rebuild" ∷ []) [ text "↻ перестроить вывод" ] ∷ [] )
+                    ( h2 [] [ text tCardKnowledge ]
+                    ∷ when (λ m → not (selected m ≡ᵇ 0))
+                        (button (onClick Rebuild ∷ disabledBind busy ∷ class "cxm-rebuild" ∷ [])
+                          [ text tCardRebuild ]) ∷ [] )
                 ∷ ul [] ( foreachKeyed knowledge (λ k → show (kvId k)) knowRow ∷ [] )
-                ∷ when (λ m → not (editing m ≡ᵇ 0)) editPanel ∷ [] )
-            ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Эпизоды" ]
+                ∷ when (λ m → not (editing m ≡ᵇ 0)) editPanel
+                ∷ when (λ m → not (evidenceFor m ≡ᵇ 0)) evidencePanel ∷ [] )
+            ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text tCardEpisodes ]
                 ∷ ul [] ( foreachKeyed episodes (λ e → show (epvId e)) epRow ∷ [] ) ∷ [] )
-            ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Брони" ]
+            ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text tCardAppointments ]
                 ∷ ul [] ( foreachKeyed appointments (λ a → show (avId a)) apRow ∷ [] ) ∷ [] )
-            ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Ожидания" ]
+            ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text tCardExpectations ]
                 ∷ ul [] ( foreachKeyed expectations (λ x → show (xvId x)) xpRow ∷ [] ) ∷ [] )
             ∷ when (λ m → not (null (strategies m)))
                 (div (class "cxm-section cxm-ws-panel" ∷ [])
-                  ( h2 [] [ text "Как достучаться" ]
+                  ( h2 [] [ text tWsHead ]
                   ∷ ul [] ( foreachKeyed strategies (λ kw → show (kvId (proj₁ kw))) wsRow ∷ [] ) ∷ [] ))
             ∷ [] )
         ∷ [] )

@@ -20,7 +20,7 @@ open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_; not
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map; length; concat; null; foldr)
 open import Data.Maybe using (Maybe; just; nothing; maybe′)
-open import Data.Nat using (ℕ; _+_; _*_; _≡ᵇ_)
+open import Data.Nat using (ℕ; suc; _+_; _*_; _≡ᵇ_)
 open import Data.Nat.Show using (show; readMaybe)
 open import Data.Product using (_×_; _,_; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -65,11 +65,13 @@ open import Cxm.Knowledge using
   ; KStatus; ACTIVE; CONFIRMED; REFUTED; SUPERSEDED
   ; KRevision; KStrengthen; KWeaken; KConfirm; KRefute; KSupersede; KRedetail )
 open import Cxm.Offering using (Offering; oId; oKind; oPrice; oCurrency; oMetadata; oTenant; oDeletedAt)
+open import Cxm.Collections using (Evidence; evdId; evdKnowledge; evdEvent; evdTenant; evdCreatedAt)
 open import Cxm.Users using (User; uTenant; uPassHash; RoleAssignment; raSubject; raRoleId)
 open import Cxm.Bus using (OutboxEntry; obTo; obSubject; obBody; obChannel; obAttempts; obTenant; obStatus; OutStatus; OutPending; OutSent; OutFailed)
 open import Cxm.Store.Base using
   ( Err; NotFound; Conflict; Insufficient; InvalidTransition; Forbidden; Invariant
-  ; subjByTenant; knowBySubject; apptBySubject; intTokenByTenant; epBySubject; expBySubject )
+  ; subjByTenant; knowBySubject; apptBySubject; intTokenByTenant; epBySubject; expBySubject
+  ; evdByKnowledge )
 open import Cxm.Store.Verbs
 open import Cxm.Store.Pg using (runCxmTx)
 open import Cxm.Store.Registry using (cxmHistory)
@@ -319,6 +321,31 @@ private
       enc (i , r) = "{\"id\":" <> show i <> ",\"scope\":" <> str (itkScope r)
                     <> ",\"revoked\":" <> (maybe′ (λ _ → "true") "false" (itkRevokedAt r)) <> "}"
 
+  -- cxm-ui аудит №8: the explainability read — the evidence chain behind ONE knowledge unit
+  -- (why the system believes it). Mirrors cxm-ui evidenceDec field-for-field.
+  listEvidence : (ct kid : ℕ) → Tx String
+  listEvidence ct kid =
+    byIx tcEvidence evdByKnowledge kid >>=T λ ids →
+    getEach tcEvidence ids >>=T λ es →
+    returnT ("[" <> joinComma (map enc (mine es)) <> "]")
+    where
+      mine : List Evidence → List Evidence
+      mine = foldr (λ e acc → if evdTenant e ≡ᵇ ct then e ∷ acc else acc) []
+      enc : Evidence → String
+      enc e = "{\"id\":" <> show (evdId e) <> ",\"knowledge\":" <> show (evdKnowledge e)
+              <> ",\"event\":" <> show (evdEvent e) <> ",\"createdAt\":" <> show (evdCreatedAt e) <> "}"
+
+  -- cxm-ui аудит №12: optional page cap for the community readers (0 = всё). They are
+  -- newest-first/rank-ordered, so `limit n` = "the top n" — the compatible pagination seed.
+  takeN : ∀ {A : Set} → ℕ → List A → List A
+  takeN 0 _ = []
+  takeN _ [] = []
+  takeN (suc n) (x ∷ xs) = x ∷ takeN n xs
+
+  capL : ∀ {A : Set} → ℕ → List A → List A
+  capL 0 xs = xs
+  capL n xs = takeN n xs
+
   -- cxm-ui Ф3.4: the viewer-facing offering list (paywall buy buttons). Live offerings of the
   -- token's tenant; metadata is the server-side fulfilment plan — exposed so the site can match
   -- an offering to the node it unlocks (grants are data, not a secret: possession grants nothing).
@@ -350,16 +377,16 @@ private
              <> ",\"locked\":" <> (if cvLocked cv then "true" else "false")
              <> ",\"payload\":" <> str (if cvLocked cv then "" else rPayload (cvResource cv)) <> "}"
 
-  readFeed : (now viewer : ℕ) → Tx String
-  readFeed now viewer =
+  readFeed : (now viewer lim : ℕ) → Tx String
+  readFeed now viewer lim =
     vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens → vals tcResource >>=T λ rs →
-    returnT ("[" <> joinComma (map cvEnc (feedViews now viewer es ens rs)) <> "]")
+    returnT ("[" <> joinComma (map cvEnc (capL lim (feedViews now viewer es ens rs))) <> "]")
 
-  readShowcase : (now viewer from : ℕ) → Tx String
-  readShowcase now viewer from =
+  readShowcase : (now viewer from lim : ℕ) → Tx String
+  readShowcase now viewer from lim =
     vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens →
     vals tcResourceLink >>=T λ ls → vals tcResource >>=T λ rs →
-    returnT ("[" <> joinComma (map cvEnc (showcaseViews now (mV viewer) es ens ls from rs)) <> "]")
+    returnT ("[" <> joinComma (map cvEnc (capL lim (showcaseViews now (mV viewer) es ens ls from rs))) <> "]")
     where mV : ℕ → Maybe ℕ
           mV 0 = nothing
           mV n = just n
@@ -371,10 +398,10 @@ private
              <> ",\"locked\":" <> (if tvLocked tv then "true" else "false")
              <> ",\"payload\":" <> str (if tvLocked tv then "" else rPayload (tvResource tv)) <> "}"
 
-  readThread : (now viewer root : ℕ) → Tx String
-  readThread now viewer root =
+  readThread : (now viewer root lim : ℕ) → Tx String
+  readThread now viewer root lim =
     vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens → vals tcResource >>=T λ rs →
-    returnT ("[" <> joinComma (map tvEnc (threadViews now (mV viewer) es ens root rs)) <> "]")
+    returnT ("[" <> joinComma (map tvEnc (capL lim (threadViews now (mV viewer) es ens root rs))) <> "]")
     where mV : ℕ → Maybe ℕ
           mV 0 = nothing
           mV n = just n
@@ -509,6 +536,8 @@ private
       runW run (listKnowledge ct (natOr req "subject" 0)) okJson
     else if is m "POST" ∧ is p "/knowledge/evidence" then
       runW run (attachEvidenceV (natOr req "knowledge" 0) (natOr req "event" 0) ct now) idJson
+    else if is m "POST" ∧ is p "/knowledge/evidence/by-knowledge" then
+      runW run (listEvidence ct (natOr req "knowledge" 0)) okJson
     else if is m "POST" ∧ is p "/knowledge/rebuild-inference" then
       runW run (rebuildInferenceV (natOr req "subject" 0) ct) okUnit
     else if is m "POST" ∧ is p "/knowledge/revise" then
@@ -671,11 +700,13 @@ private
                 recordPaymentV (fieldOr req "ext_id" "") (oId o) buyer (oPrice o)
                   (fieldOr req "name" "") (fieldOr req "email" "") vt now) idJson
     else if is p "/v1/feed" then
-      runW run (resolveViewer ich iid >>=T λ vw → readFeed now vw) okJson
+      runW run (resolveViewer ich iid >>=T λ vw → readFeed now vw (natOr req "limit" 0)) okJson
     else if is p "/v1/thread" then
-      runW run (resolveViewer ich iid >>=T λ vw → readThread now vw (natOr req "root" 0)) okJson
+      runW run (resolveViewer ich iid >>=T λ vw →
+                readThread now vw (natOr req "root" 0) (natOr req "limit" 0)) okJson
     else if is p "/v1/showcase" then
-      runW run (resolveViewer ich iid >>=T λ vw → readShowcase now vw (natOr req "from" 0)) okJson
+      runW run (resolveViewer ich iid >>=T λ vw →
+                readShowcase now vw (natOr req "from" 0) (natOr req "limit" 0)) okJson
     else pure (errJson 404 "not_found" "no such /v1 route")
 
   route : TxRunner → String → HttpRequest → IO HttpResponse

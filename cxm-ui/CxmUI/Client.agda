@@ -61,6 +61,15 @@ envelope dec resp with decodeString (field′ "data" dec) resp
 ...   | ok e  = err (serverErr e)
 ...   | err m = err (decodeErr m)
 
+-- transport-error body → CallErr. The runtime hands the 4xx/5xx response BODY to the error
+-- callback (agdelte 2026-07-07); the server puts its {"error":{code,message}} envelope there —
+-- recover it as serverErr so widgets say «сервер: conflict», not «сеть: HTTP 409». A body that
+-- is not an error envelope (proxy page, truncated response) stays httpErr.
+errBody : String → CallErr
+errBody r with decodeString (field′ "error" errDec) r
+... | ok e  = serverErr e
+... | err _ = httpErr r
+
 ------------------------------------------------------------------------
 -- Request plumbing
 ------------------------------------------------------------------------
@@ -74,6 +83,8 @@ escJson s = fromList (concatMap escChar (toList s))
     escChar '"'  = '\\' ∷ '"' ∷ []
     escChar '\\' = '\\' ∷ '\\' ∷ []
     escChar '\n' = '\\' ∷ 'n' ∷ []
+    escChar '\t' = '\\' ∷ 't' ∷ []
+    escChar '\r' = '\\' ∷ 'r' ∷ []
     escChar c    = c ∷ []
 
 private
@@ -83,12 +94,12 @@ private
   postJson : ∀ {A M : Set} → Cfg → String → String → Decoder A → (Result CallErr A → M) → Cmd M
   postJson cfg path body dec k =
     httpPostH (base cfg ++ path) (authHdr (jwt cfg)) body
-              (λ r → k (envelope dec r)) (λ r → k (err (httpErr r)))
+              (λ r → k (envelope dec r)) (λ r → k (err (errBody r)))
 
   getJson : ∀ {A M : Set} → Cfg → String → Decoder A → (Result CallErr A → M) → Cmd M
   getJson cfg path dec k =
     httpGetH (base cfg ++ path) (authHdr (jwt cfg))
-             (λ r → k (envelope dec r)) (λ r → k (err (httpErr r)))
+             (λ r → k (envelope dec r)) (λ r → k (err (errBody r)))
 
   bySubjectBody : ℕ → String
   bySubjectBody s = "{\"subject\":" ++ show s ++ "}"
@@ -102,7 +113,7 @@ login : ∀ {M : Set} → Cfg → (login password : String) → (Result CallErr 
 login cfg lg pw k =
   httpPostH (base cfg ++ "/auth/login") []
             ("{\"login\":\"" ++ escJson lg ++ "\",\"password\":\"" ++ escJson pw ++ "\"}")
-            (λ r → k (envelope (field′ "token" string) r)) (λ r → k (err (httpErr r)))
+            (λ r → k (envelope (field′ "token" string) r)) (λ r → k (err (errBody r)))
 
 ------------------------------------------------------------------------
 -- Cabinet reads (owner-scoped; jwt required). The client card composes these.
@@ -123,6 +134,12 @@ expectationsOf cfg sid = postJson cfg "/expectations/by-subject" (bySubjectBody 
 appointmentsOf : ∀ {M : Set} → Cfg → ℕ → (Result CallErr (List AppointmentView) → M) → Cmd M
 appointmentsOf cfg sid = postJson cfg "/appointments/by-subject" (bySubjectBody sid) appointmentListDec
 
+-- explainability (аудит №8): the evidence chain behind one knowledge unit — WHY the system
+-- believes it (events attached by inference/operator).
+evidenceOf : ∀ {M : Set} → Cfg → (knowledge : ℕ) → (Result CallErr (List EvidenceView) → M) → Cmd M
+evidenceOf cfg kid =
+  postJson cfg "/knowledge/evidence/by-knowledge" ("{\"knowledge\":" ++ show kid ++ "}") evidenceListDec
+
 ------------------------------------------------------------------------
 -- /v1 social reads (Ф1.3). The /v1 surface has its OWN auth: an `x-integration-token` header
 -- (site-scoped, resolves to the owner's tenant) + viewer identity in the body
@@ -138,21 +155,27 @@ private
   postV1 : ∀ {A M : Set} → V1Cfg → String → String → Decoder A → (Result CallErr A → M) → Cmd M
   postV1 c path extra dec k =
     httpPostH (v1base c ++ path) (("x-integration-token" , v1token c) ∷ [])
-              ("{\"identity_channel\":\"" ++ v1channel c ++ "\",\"identity_id\":\"" ++ v1id c
-                ++ "\"" ++ extra ++ "}")
-              (λ r → k (envelope dec r)) (λ r → k (err (httpErr r)))
+              ("{\"identity_channel\":\"" ++ escJson (v1channel c) ++ "\",\"identity_id\":\""
+                ++ escJson (v1id c) ++ "\"" ++ extra ++ "}")
+              (λ r → k (envelope dec r)) (λ r → k (err (errBody r)))
+
+  -- optional page size (0 = всё): the readers are newest-first/rank-ordered, so `limit n`
+  -- means "the top n". Widgets pass 0 (unchanged behavior); sites cap community-scale lists.
+  limitOf : ℕ → String
+  limitOf 0 = ""
+  limitOf n = ",\"limit\":" ++ show n
 
 -- Ф3.1: content of followed authors, newest-first; locked rows are stripped teasers.
-feed : ∀ {M : Set} → V1Cfg → (Result CallErr (List ContentView) → M) → Cmd M
-feed c = postV1 c "/v1/feed" "" contentListDec
+feed : ∀ {M : Set} → V1Cfg → (limit : ℕ) → (Result CallErr (List ContentView) → M) → Cmd M
+feed c lim = postV1 c "/v1/feed" (limitOf lim) contentListDec
 
 -- Ф3.2: pre-ordered conversation under a root (depth 0 = root, children createdAt-asc).
-thread : ∀ {M : Set} → V1Cfg → (root : ℕ) → (Result CallErr (List ThreadNodeView) → M) → Cmd M
-thread c root = postV1 c "/v1/thread" (",\"root\":" ++ show root) threadListDec
+thread : ∀ {M : Set} → V1Cfg → (root limit : ℕ) → (Result CallErr (List ThreadNodeView) → M) → Cmd M
+thread c root lim = postV1 c "/v1/thread" (",\"root\":" ++ show root ++ limitOf lim) threadListDec
 
 -- Ф3.3: curated showcase window at `from` (feed-shaped rows, rank-ordered server-side).
-showcase : ∀ {M : Set} → V1Cfg → (from : ℕ) → (Result CallErr (List ContentView) → M) → Cmd M
-showcase c from = postV1 c "/v1/showcase" (",\"from\":" ++ show from) contentListDec
+showcase : ∀ {M : Set} → V1Cfg → (from limit : ℕ) → (Result CallErr (List ContentView) → M) → Cmd M
+showcase c from lim = postV1 c "/v1/showcase" (",\"from\":" ++ show from ++ limitOf lim) contentListDec
 
 -- Ф3.4: paywall — the live offering list, and purchase-start. The server records a PENDING
 -- payment at ITS price (the client never sends an amount); success arrives via the provider
@@ -162,7 +185,7 @@ offeringsV1 c = postV1 c "/v1/offerings" "" offeringListDec
 
 purchase : ∀ {M : Set} → V1Cfg → (offering : ℕ) (extId : String) → (Result CallErr ℕ → M) → Cmd M
 purchase c off ext =
-  postV1 c "/v1/purchase" (",\"offering\":" ++ show off ++ ",\"ext_id\":\"" ++ ext ++ "\"") idDec
+  postV1 c "/v1/purchase" (",\"offering\":" ++ show off ++ ",\"ext_id\":\"" ++ escJson ext ++ "\"") idDec
 
 ------------------------------------------------------------------------
 -- Cabinet writes (return {"ok":true} on success, NOT a data envelope)
@@ -179,7 +202,7 @@ private
   postUnit : ∀ {M : Set} → Cfg → String → String → (Result CallErr ⊤ → M) → Cmd M
   postUnit cfg path body k =
     httpPostH (base cfg ++ path) (authHdr (jwt cfg)) body
-              (λ r → k (envelopeUnit r)) (λ r → k (err (httpErr r)))
+              (λ r → k (envelopeUnit r)) (λ r → k (err (errBody r)))
 
 -- Ф2.4: re-derive a subject's ACTIVE hypotheses from its event log.
 rebuildInference : ∀ {M : Set} → Cfg → ℕ → (Result CallErr ⊤ → M) → Cmd M
