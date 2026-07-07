@@ -13,14 +13,14 @@
 module Cxm.Store.Registry where
 
 open import Agda.Builtin.String using (String)
-open import Data.List using (List; []; _∷_; map)
+open import Data.List using (List; []; _∷_; _++_; map)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Agdelte.Storage.Schema using (Schema; Row)
 open import Agdelte.Storage.Migration using
-  (MigStep; mCreateTable; mCreateSequence; migrate; SchemaSet; checkMigrations)
+  (MigStep; mCreateTable; mCreateSequence; mIndexU; mIndexP; migrate; SchemaSet; checkMigrations)
 
 open import Cxm.Tenant
 open import Cxm.Subject
@@ -98,10 +98,29 @@ dumps =
 cxmSchemas : SchemaSet
 cxmSchemas = map (λ d → dName d , dSchema d) dumps
 
+-- Schema HARDENING (prod-readiness audit 2026-07-07): PG indexes on the `byCol` lookup columns —
+-- every `WHERE col = val` path (Verbs.byColSupported) was a sequential scan. UNIQUE where the app
+-- treats the column as a GLOBALLY-unique natural key (login: lockKey on hash + global lookup;
+-- token: random secret + global gate) — the intended "second line" against dup rows. PLAIN index
+-- where the key is composite/uncertain (identity keys on (channel,external_id); protocol.name is
+-- per-tenant; payment.ext_id may be empty; a subject holds many role rows) — perf only, the app
+-- advisory lock stays the dup-defense. Model-invisible (mIndexU/mIndexP ⇒ NOT byIx positions).
+hardeningIndexes : List MigStep
+hardeningIndexes =
+    mIndexU "user"              "login"        -- globally-unique auth identity
+  ∷ mIndexU "integration_token" "token"        -- globally-unique random secret (/v1 gate)
+  ∷ mIndexP "identity"          "external_id"   -- resolve-by-external-id (hot: every ingest/bind)
+  ∷ mIndexP "role_assignment"   "subject"       -- RBAC roles (hot: every cabinet request)
+  ∷ mIndexP "payment"           "ext_id"        -- payment idempotency lookup
+  ∷ mIndexP "protocol"          "name"          -- ensureProtocol
+  ∷ []
+
 -- day-0 history: the GLOBAL id sequence (rFresh would crash on a fresh deploy without it —
--- audit D1) + one CREATE per table. FREEZE (replace with a literal) at the first prod deploy.
+-- audit D1) + one CREATE per table + the hardening indexes (AFTER the tables exist).
+-- FREEZE (replace with a literal) at the first prod deploy.
 genesis : List MigStep
-genesis = mCreateSequence "cxm_id_seq" ∷ map (λ d → mCreateTable (dName d) (dSchema d)) dumps
+genesis = mCreateSequence "cxm_id_seq"
+        ∷ (map (λ d → mCreateTable (dName d) (dSchema d)) dumps ++ hardeningIndexes)
 
 cxmHistory : List MigStep
 cxmHistory = genesis

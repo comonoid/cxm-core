@@ -1,5 +1,23 @@
 # PG-only store — план и контракты (2026-07-05)
 
+## ★★ АУДИТ СХЕМЫ + ХАРДЕНИНГ (2026-07-07) — предпрод
+**Аудит живой схемы (pg_dump со scratch):** 28 таблиц, PK/типы/NOT-NULL чисто, 35 byIx-индексов;
+но **0 FK / 0 UNIQUE / 0 CHECK**. 🔴 БЛОКЕР был: все 6 `byCol`-путей (`WHERE col=val`:
+identity.external_id, integration_token.token, role_assignment.subject, user.login, payment.ext_id,
+protocol.name) — по НЕиндексированным колонкам ⇒ seq-scan на горячих запросах (резолв личности,
+/v1-гейт, RBAC на каждый кабинетный запрос). Причина не «забыли idxCol»: `idxCol` по дизайну только
+nat (isIndexable), строковые ключи EDSL не индексировал.
+**ИСПРАВЛЕНО:** новые model-invisible шаги `Storage.Migration.mIndexU`/`mIndexP` (эмитят CREATE
+[UNIQUE] INDEX, но НЕ трогают `cindexed`/byIx-позиции); `Registry.hardeningIndexes` в `genesis`
+(после create-table). UNIQUE — где ключ ГЛОБАЛЬНО уникален по семантике приложения (`user.login`:
+lockKey по хэшу+глобальный lookup; `integration_token.token`: random secret+глоб. гейт). PLAIN —
+где ключ композитный/неопределён (identity keys on (channel,external_id); protocol.name per-tenant;
+payment.ext_id может быть пуст; у subject много role-строк). Оба refl-гейта держатся (migrate ≡
+cxmSchemas — шаги невидимы модели; checkMigrations ≡ [] — валидируют table+col). MigrationTest +8
+refl. **Live на fresh scratch:** genesis поднимает все 6 (2 uidx+4 idx), pg-diff ALL GREEN, UNIQUE
+с зубами (dup login → duplicate key violation). FK/CHECK — осознанно отложены (целостность/инварианты
+на уровне приложения). **Схема прод-готова.**
+
 ## Решение
 Единственный прод-стор CXM — **Postgres**. Причина: community-сайт (мелкие сайты интегрируются в
 один крупный) → все таблицы растут вширь + конкурентные писатели + поиск/ленты/бэкапы. WAL-memory-image
