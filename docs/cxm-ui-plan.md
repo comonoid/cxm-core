@@ -93,7 +93,19 @@
 - [ ] 3.4 **Paywall/покупка** — entitlement-gated контент + кнопка покупки
 
 ## Ф4. Дев-харнесс + полировка
-- [ ] 4.1 Дев-страница (НЕ продуктовый сайт) — рендер виджетов в браузере для визуальной проверки (storybook-подобный каталог)
+- [x] 4.1 Дев-харнесс (`cxm-ui/dev/`, НЕ продуктовый сайт): `serve.mjs` (статика dev/+_build/+
+      agdelte-runtime + same-origin ПРОКСИ прочих путей на cxm-server-pg — CORS серверу не нужен,
+      Cfg base="" как в проде) + `index.html`/`harness.mjs` (storybook-каталог: логин→JWT в
+      sessionStorage → runReactiveApp; новый виджет = строка в WIDGETS) + `dev/smoke.mjs` —
+      автоматическая половина «DOM вручную»: happy-dom + РЕАЛЬНЫЙ fetch к живому серверу,
+      сам сидит данные, кликает Загрузить→субъект, ждёт round-trip'ы — 7/7 ✓ (вкл. панель VIII.a
+      с живой фразой). `npm run dev` / `npm run test:smoke` (нужен живой сервер на :8138).
+      ★ Смоук вскрыл 2 дрейфа: (1) live `/auth/login` отдаёт `{"data":{"token":…}}`, а Ф1.1
+      ждал голый `{"token":…}` — `Client.login` переведён на `envelope`, тест на реальной форме
+      (client 9/9); (2) agdelte runtime `agdaHeadersToObj` умел только callable-пары, а Agda 2.9
+      --js эмитит объектную форму `{"_,_":…}` → httpGetH/httpPostH с заголовками падали ИЗ Agda
+      (тест auth-http.test.js строил пары руками в JS и дрейф не ловил) — починено по образцу
+      events.js onKeys; agdelte auth 13/13 + dom 66/66 без регрессий.
 - [ ] 4.2 Единый стиль: ошибки, лоадеры, пустые состояния
 
 ---

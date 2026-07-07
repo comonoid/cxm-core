@@ -82,7 +82,8 @@ private
   bySubjectBody s = "{\"subject\":" ++ show s ++ "}"
 
 ------------------------------------------------------------------------
--- Auth (login → JWT; server returns {"token":…}, NOT enveloped)
+-- Auth (login → JWT; live server envelopes it like everything else: {"data":{"token":…}} —
+-- caught by the Ф4.1 live smoke, the original Ф1.1 decoder expected a bare {"token":…})
 ------------------------------------------------------------------------
 
 -- ⚠ body is not JSON-escaped yet (Ф1): fine for typical login/password; add an escaper if values
@@ -91,14 +92,7 @@ login : ∀ {M : Set} → Cfg → (login password : String) → (Result CallErr 
 login cfg lg pw k =
   httpPostH (base cfg ++ "/auth/login") []
             ("{\"login\":\"" ++ lg ++ "\",\"password\":\"" ++ pw ++ "\"}")
-            (λ r → k (tokenOf r)) (λ r → k (err (httpErr r)))
-  where
-    tokenOf : String → Result CallErr String
-    tokenOf r with decodeString (field′ "token" string) r
-    ... | ok t  = ok t
-    ... | err _ with decodeString (field′ "error" errDec) r
-    ...   | ok e  = err (serverErr e)
-    ...   | err m = err (decodeErr m)
+            (λ r → k (envelope (field′ "token" string) r)) (λ r → k (err (httpErr r)))
 
 ------------------------------------------------------------------------
 -- Cabinet reads (owner-scoped; jwt required). The client card composes these.

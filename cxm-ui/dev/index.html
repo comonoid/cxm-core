@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cxm-ui — дев-харнесс</title>
+<style>
+  /* Дев-обвязка (НЕ продуктовая тема): нейтральный минимум, чтобы виджеты читались глазами.
+     Классы cxm-* — контрактные хуки виджетов cxm-ui; сайт задаёт им свою тему. */
+  :root { color-scheme: light; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #f6f6f4; color: #222; }
+  header { display: flex; gap: 1rem; align-items: center; padding: .6rem 1rem;
+           background: #fff; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
+  header form { display: flex; gap: .4rem; align-items: center; margin-left: auto; }
+  header input { padding: .25rem .4rem; }
+  .layout { display: flex; min-height: calc(100vh - 3rem); }
+  nav#catalog { width: 15rem; padding: 1rem; border-right: 1px solid #ddd; background: #fbfbfa; }
+  nav#catalog button { display: block; width: 100%; text-align: left; margin-bottom: .4rem;
+                       padding: .4rem .6rem; cursor: pointer; }
+  nav#catalog button.active { font-weight: 700; outline: 2px solid #557; }
+  main#stage { flex: 1; padding: 1rem; }
+  .hint { color: #888; }
+  #whoami { font-size: .85rem; color: #575; }
+
+  /* --- дев-стили контрактных классов виджетов --- */
+  .cxm-toolbar { display: flex; gap: .8rem; align-items: center; margin-bottom: .8rem; }
+  .cxm-status { color: #a55; font-size: .9rem; }
+  .cxm-cols { display: flex; gap: 1.2rem; align-items: flex-start; }
+  .cxm-roster { min-width: 13rem; }
+  .cxm-roster ul, .cxm-card ul { list-style: none; padding: 0; margin: .3rem 0; }
+  .cxm-roster-btn { width: 100%; text-align: left; padding: .3rem .5rem; cursor: pointer; }
+  .cxm-card { flex: 1; }
+  .cxm-section { margin-bottom: 1rem; background: #fff; border: 1px solid #e2e2de;
+                 border-radius: .5rem; padding: .6rem .8rem; }
+  .cxm-section h2 { font-size: 1rem; margin: .1rem 0 .4rem; }
+  .cxm-section-head { display: flex; gap: .8rem; align-items: center; }
+  .cxm-know, .cxm-ws, .cxm-exp, .cxm-appt, .cxm-episode
+    { display: flex; gap: .5rem; align-items: baseline; padding: .25rem 0;
+      border-top: 1px dashed #eee; flex-wrap: wrap; }
+  .cxm-badge { font-size: .75rem; padding: .05rem .45rem; border-radius: .6rem;
+               background: #eee; border: 1px solid #ccc; }
+  .cxm-badge-fact { background: #dcefdc; } .cxm-badge-hypothesis { background: #fdf3d7; }
+  .cxm-badge-state { background: #dde8f8; } .cxm-badge-trait { background: #f0dff2; }
+  .cxm-status-refuted { text-decoration: line-through; }
+  .cxm-status-confirmed { background: #cfe8cf; }
+  .cxm-conf { font-size: .8rem; color: #667; }
+  .cxm-detail { color: #444; }
+  .cxm-rev { font-size: .75rem; margin-left: .15rem; cursor: pointer; }
+  .cxm-exp-met .cxm-badge { background: #dcefdc; }
+  .cxm-exp-unmet .cxm-badge { background: #f6d9d5; }
+  .cxm-exp-unknown .cxm-badge { background: #eee; }
+  .cxm-ws-panel { border-color: #b9c6e0; background: #f4f7fd; }
+  .cxm-ws-text { font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <strong>cxm-ui</strong> <span class="hint">дев-харнесс (Ф4.1, не продуктовый сайт)</span>
+  <span id="whoami"></span>
+  <form id="login-form">
+    <input id="lg" placeholder="login" value="dev@cxm.local">
+    <input id="pw" type="password" placeholder="password" value="devpass123">
+    <button>Войти</button>
+  </form>
+</header>
+<div class="layout">
+  <nav id="catalog"></nav>
+  <main id="stage"><p class="hint">войди (JWT) и выбери виджет слева</p></main>
+</div>
+<script type="module" src="./harness.mjs"></script>
+</body>
+</html>

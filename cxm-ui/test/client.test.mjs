@@ -7,6 +7,7 @@
  */
 import Client from '../_build/jAgda.CxmUI.Client.mjs';
 import Contract from '../_build/jAgda.CxmUI.Contract.mjs';
+import JsonMod from '../_build/jAgda.Agdelte.Json.mjs';
 import { readFileSync } from 'node:fs';
 
 const matchResult = (r) => r({ ok: (v) => ({ tag: 'ok', value: v }), err: (e) => ({ tag: 'err', error: e }) });
@@ -61,6 +62,13 @@ test('envelopeUnit error ({"error":…} → serverErr)', () => {
   const r = matchResult(Client.envelopeUnit(JSON.stringify({ error: { code: 'forbidden', message: 'x' } })));
   if (r.tag !== 'err') throw new Error('expected err');
   eq(r.error({ httpErr: () => 'http', serverErr: () => 'server', decodeErr: () => 'decode' }), 'server');
+});
+
+test('login envelope ({"data":{"token":…}} — REAL live shape, Ф4.1 drift find)', () => {
+  // live /auth/login envelopes the token like every other response; Ф1.1 wrongly expected bare
+  // {"token":…} — Client.login now goes through `envelope (field′ "token" string)`. Same decoder:
+  const tokenDec = JsonMod['field′'](null)('token')(JsonMod.string);
+  eq(envOk(tokenDec, { data: { token: 'ey.header.sig' } }), 'ey.header.sig');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
