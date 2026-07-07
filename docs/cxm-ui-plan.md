@@ -65,10 +65,16 @@
       Тайпчек ✓, `agda --js` → `.mjs` ✓ (визуал — вручную в Ф4-харнессе). Ф2.1+2.2-дисплей одним виджетом.
 - [x] 2.2 **Эпист-бейджи** (дисплей) — знания рендерятся с бейджами type (fact/hypothesis/state/trait) +
       status + ‰confidence + opaque detail (CSS-классы `cxm-badge-<type>`/`cxm-status-<status>` для сайта).
-- [ ] 2.3 Блокнот: действия ревизии (strengthen/weaken/confirm/refute/supersede/redetail) — нужны write-вызовы клиента
-- [ ] 2.4 Блокнот: кнопка «перестроить вывод» (`POST /knowledge/rebuild-inference`)
+- [ ] 2.3 Блокнот: действия ревизии (strengthen/weaken/confirm/refute/supersede/redetail)
+      **⚠ БЛОКЕР: у сервера НЕТ роута ревизии** (`updateKnowledgeV` есть в CommandsV, но не подключён;
+      роуты знаний — только create/by-subject/evidence/rebuild). Нужен `POST /knowledge/revise`
+      {knowledge, kind, amount?, detail?} → как Ф0.4 (правка `cxm-server-pg`). Потом — кнопки в knowRow.
+- [x] 2.4 Блокнот: кнопка «перестроить вывод» — `Rebuild` (читает `selected` в cmd) → `Client.rebuildInference`
+      (`POST /knowledge/rebuild-inference`, обрабатывает `{"ok":true}` через `envelopeUnit`) → перезагрузка знаний.
+      Client+ClientCard компилятся; `envelopeUnit` тест 2/2 (ok+error). Роут на сервере уже был.
 - [ ] 2.5 **Панель VIII.a** — декодер `kDetail` рабочих стратегий (work_strategy trait) → читаемая панель
-- [ ] 2.6 **Expectation-gap** — ожидания vs факт, статусы
+- [x] 2.6 **Expectation-gap** — секция «Ожидания» в карточке: `expectationsOf` в batch-загрузке, `xpRow`
+      с gap-сигналом (met/unmet/unknown, класс `cxm-exp-<status>`) + topic + уровень. Компилится.
 
 ## Ф3. Сообщество / соц-виджеты (community)
 - [ ] 3.1 **Лента** (feed) — контент авторов, за кем следит зритель; newest-first

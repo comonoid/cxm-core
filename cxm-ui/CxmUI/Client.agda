@@ -8,6 +8,7 @@
 module CxmUI.Client where
 
 open import Agda.Builtin.String using (primStringEquality)
+open import Agda.Builtin.Unit using (⊤; tt)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Show using (show)
 open import Data.String using (String; _++_)
@@ -17,7 +18,7 @@ open import Data.Bool using (if_then_else_)
 
 open import Agdelte.Core.Result using (Result; ok; err)
 open import Agdelte.Core.Cmd using (Cmd; httpGetH; httpPostH)
-open import Agdelte.Json using (Decoder; string; field′; decodeString; andThen; succeed)
+open import Agdelte.Json using (Decoder; string; bool; field′; decodeString; andThen; succeed)
 open import CxmUI.Contract
 
 private
@@ -117,3 +118,25 @@ expectationsOf cfg sid = postJson cfg "/expectations/by-subject" (bySubjectBody 
 
 appointmentsOf : ∀ {M : Set} → Cfg → ℕ → (Result CallErr (List AppointmentView) → M) → Cmd M
 appointmentsOf cfg sid = postJson cfg "/appointments/by-subject" (bySubjectBody sid) appointmentListDec
+
+------------------------------------------------------------------------
+-- Cabinet writes (return {"ok":true} on success, NOT a data envelope)
+------------------------------------------------------------------------
+
+-- {"ok":true} → ok tt ; {"error":…} → serverErr ; else decodeErr
+envelopeUnit : String → Result CallErr ⊤
+envelopeUnit resp with decodeString (field′ "ok" bool) resp
+... | ok _  = ok tt
+... | err _ with decodeString (field′ "error" errDec) resp
+...   | ok e  = err (serverErr e)
+...   | err m = err (decodeErr m)
+
+private
+  postUnit : ∀ {M : Set} → Cfg → String → String → (Result CallErr ⊤ → M) → Cmd M
+  postUnit cfg path body k =
+    httpPostH (base cfg ++ path) (authHdr (jwt cfg)) body
+              (λ r → k (envelopeUnit r)) (λ r → k (err (httpErr r)))
+
+-- Ф2.4: re-derive a subject's ACTIVE hypotheses from its event log.
+rebuildInference : ∀ {M : Set} → Cfg → ℕ → (Result CallErr ⊤ → M) → Cmd M
+rebuildInference cfg sid = postUnit cfg "/knowledge/rebuild-inference" (bySubjectBody sid)

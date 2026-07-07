@@ -53,6 +53,15 @@ test('envelope error path ({"error":…} → serverErr)', () => {
   const tag = r.error({ httpErr: () => 'http', serverErr: () => 'server', decodeErr: () => 'decode' });
   eq(tag, 'server');
 });
+test('envelopeUnit ok ({"ok":true}) — write path', () => {
+  const r = matchResult(Client.envelopeUnit(JSON.stringify({ ok: true })));
+  if (r.tag !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(r)}`);
+});
+test('envelopeUnit error ({"error":…} → serverErr)', () => {
+  const r = matchResult(Client.envelopeUnit(JSON.stringify({ error: { code: 'forbidden', message: 'x' } })));
+  if (r.tag !== 'err') throw new Error('expected err');
+  eq(r.error({ httpErr: () => 'http', serverErr: () => 'server', decodeErr: () => 'decode' }), 'server');
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -7,6 +7,7 @@
 -- Brand-neutral — a site supplies theme/layout and mounts `clientCardApp cfg`.
 module CxmUI.ClientCard where
 
+open import Agda.Builtin.Unit using (⊤)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Show using (show)
 open import Data.String using (String; _++_)
@@ -33,11 +34,12 @@ record Model : Set where
     knowledge    : List KnowledgeView
     episodes     : List EpisodeView
     appointments : List AppointmentView
+    expectations : List ExpectationView
     status       : String               -- transient status / error line
 open Model public
 
 initModel : Cfg → Model
-initModel c = mkModel c [] 0 [] [] [] "нажми «Загрузить» — список клиентов"
+initModel c = mkModel c [] 0 [] [] [] [] "нажми «Загрузить» — список клиентов"
 
 ------------------------------------------------------------------------
 -- Messages
@@ -50,6 +52,9 @@ data Msg : Set where
   GotKnowledge   : Result CallErr (List KnowledgeView) → Msg
   GotEpisodes    : Result CallErr (List EpisodeView) → Msg
   GotAppointments : Result CallErr (List AppointmentView) → Msg
+  GotExpectations : Result CallErr (List ExpectationView) → Msg
+  Rebuild        : Msg                                    -- rebuild inference for the selected subject
+  GotRebuild     : Result CallErr ⊤ → Msg
 
 ------------------------------------------------------------------------
 -- Update (pure) + the effect hook (cmd)
@@ -66,20 +71,29 @@ updateModel LoadRoster m = record m { status = "загрузка списка…
 updateModel (GotRoster (ok rs)) m = record m { subjects = rs ; status = "" }
 updateModel (GotRoster (err e)) m = record m { status = errStr e }
 updateModel (Select sid) m =
-  record m { selected = sid ; knowledge = [] ; episodes = [] ; appointments = [] ; status = "загрузка карточки…" }
+  record m { selected = sid ; knowledge = [] ; episodes = [] ; appointments = [] ; expectations = []
+           ; status = "загрузка карточки…" }
 updateModel (GotKnowledge (ok ks)) m = record m { knowledge = ks ; status = "" }
 updateModel (GotKnowledge (err e)) m = record m { status = errStr e }
 updateModel (GotEpisodes (ok es)) m = record m { episodes = es }
 updateModel (GotEpisodes (err e)) m = record m { status = errStr e }
 updateModel (GotAppointments (ok as)) m = record m { appointments = as ; status = "" }
 updateModel (GotAppointments (err e)) m = record m { status = errStr e }
+updateModel (GotExpectations (ok xs)) m = record m { expectations = xs ; status = "" }
+updateModel (GotExpectations (err e)) m = record m { status = errStr e }
+updateModel Rebuild m = record m { status = "перестраиваю вывод…" }
+updateModel (GotRebuild (ok _)) m = record m { status = "вывод перестроен, обновляю знания…" }
+updateModel (GotRebuild (err e)) m = record m { status = errStr e }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf LoadRoster    m = roster (cfg m) GotRoster
 cmdOf (Select sid)  m = batch ( knowledgeOf    (cfg m) sid GotKnowledge
                               ∷ episodesOf     (cfg m) sid GotEpisodes
-                              ∷ appointmentsOf (cfg m) sid GotAppointments ∷ [] )
-cmdOf _             _ = ε
+                              ∷ appointmentsOf (cfg m) sid GotAppointments
+                              ∷ expectationsOf (cfg m) sid GotExpectations ∷ [] )
+cmdOf Rebuild            m = rebuildInference (cfg m) (selected m) GotRebuild
+cmdOf (GotRebuild (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge   -- reload after rebuild
+cmdOf _                  _ = ε
 
 ------------------------------------------------------------------------
 -- View
@@ -109,6 +123,14 @@ private
   apRow a _ = li (class ("cxm-appt cxm-appt-" ++ avStatus a) ∷ [])
     [ text ("бронь #" ++ show (avId a) ++ " · " ++ show (avDuration a) ++ " мин · " ++ avStatus a) ]
 
+  -- expectation-gap (Ф2.6): topic + gap signal (met/unmet/unknown) + level; cxm-exp-<status> for CSS
+  xpRow : ExpectationView → ℕ → Node Model Msg
+  xpRow x _ = li (class ("cxm-exp cxm-exp-" ++ xvStatus x) ∷ [])
+    ( span (class ("cxm-badge cxm-exp-" ++ xvStatus x) ∷ []) [ text (xvStatus x) ]
+    ∷ span (class "cxm-exp-topic" ∷ []) [ text (xvTopic x) ]
+    ∷ span (class "cxm-exp-level" ∷ []) [ text ("уровень " ++ show (xvLevel x)) ]
+    ∷ [] )
+
 cardTemplate : Node Model Msg
 cardTemplate =
   div (class "cxm-client-card" ∷ [])
@@ -120,12 +142,17 @@ cardTemplate =
             ( h2 [] [ text "Клиенты" ]
             ∷ ul [] ( foreachKeyed subjects (λ r → show (rvId r)) rosterRow ∷ [] ) ∷ [] )
         ∷ div (class "cxm-card" ∷ [])
-            ( div (class "cxm-section" ∷ []) ( h2 [] [ text "Знания" ]
+            ( div (class "cxm-section" ∷ [])
+                ( div (class "cxm-section-head" ∷ [])
+                    ( h2 [] [ text "Знания" ]
+                    ∷ button (onClick Rebuild ∷ class "cxm-rebuild" ∷ []) [ text "↻ перестроить вывод" ] ∷ [] )
                 ∷ ul [] ( foreachKeyed knowledge (λ k → show (kvId k)) knowRow ∷ [] ) ∷ [] )
             ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Эпизоды" ]
                 ∷ ul [] ( foreachKeyed episodes (λ e → show (epvId e)) epRow ∷ [] ) ∷ [] )
             ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Брони" ]
                 ∷ ul [] ( foreachKeyed appointments (λ a → show (avId a)) apRow ∷ [] ) ∷ [] )
+            ∷ div (class "cxm-section" ∷ []) ( h2 [] [ text "Ожидания" ]
+                ∷ ul [] ( foreachKeyed expectations (λ x → show (xvId x)) xpRow ∷ [] ) ∷ [] )
             ∷ [] )
         ∷ [] )
     ∷ [] )
