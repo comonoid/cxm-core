@@ -444,12 +444,17 @@ createUserV login ph ten now =
 registerOwnerV : (login passHash name : String) (now : ℕ) → Tx ℕ
 registerOwnerV login ph name now =
   lockKey nsOwnerRegister (hashKey login) >>T
-  fresh >>=T λ tid →
-  put tcTenant (mkTenant tid name now) >>T
-  createUserV login ph tid now >>=T λ _ →
-  fresh >>=T λ aid →
-  put tcAssignment (mkAssignment aid tid login "owner" "" now) >>T
-  returnT tid
+  -- find-then-reject under the login lock: a taken login is a clean Conflict, not a duplicate
+  -- user (was: unconditional create ⇒ silent dup pre-hardening, unique-violation 500 post-).
+  byCol tcUser "login" login >>=T λ where
+    (_ ∷ _) → abortT Conflict
+    []      →
+      fresh >>=T λ tid →
+      put tcTenant (mkTenant tid name now) >>T
+      createUserV login ph tid now >>=T λ _ →
+      fresh >>=T λ aid →
+      put tcAssignment (mkAssignment aid tid login "owner" "" now) >>T
+      returnT tid
 
 -- expectations (слой II)
 createExpectationV : (subject : ℕ) (topic : String) (src : ExpSource)
