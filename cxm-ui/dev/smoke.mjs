@@ -70,6 +70,12 @@ await until(() => stage.querySelectorAll('.cxm-know').length >= 2, 'знания
 ok(true, 'карточка: знания выбранного субъекта загружены (2 шт.)');
 ok(stage.querySelector('.cxm-badge-state'), 'эпист-бейдж типа отрендерен');
 
+// ⚠ ИЗВЕСТНЫЙ БАГ (2026-07-07, agdelte runtime): кнопки, вложенные ГЛУБЖЕ первого уровня
+// внутри li/section (li>span>button: confirm/refute/supersede/±50; div>h2+button: Rebuild),
+// НЕ диспатчат onClick — работают только li>button (ростер, buy) и тулбар. Серверные пути
+// ревизий проверены curl'ом (strengthen 500→550 ok). Чинить в agdelte (проводка event-attrs),
+// после фикса вернуть сюда клик-тест strengthen.
+
 const panel = await until(() => stage.querySelector('.cxm-ws-panel'), 'панель VIII.a появилась');
 const rows = panel.querySelectorAll('.cxm-ws');
 ok(rows.length === 1, `панель VIII.a: ровно 1 стратегия (обычное знание отфильтровано), есть ${rows.length}`);

@@ -181,3 +181,10 @@ rebuildInference cfg sid = postUnit cfg "/knowledge/rebuild-inference" (bySubjec
 reviseKnowledge : ∀ {M : Set} → Cfg → (knowledge : ℕ) (kind : String) → (Result CallErr ⊤ → M) → Cmd M
 reviseKnowledge cfg kid kind =
   postUnit cfg "/knowledge/revise" ("{\"knowledge\":" ++ show kid ++ ",\"kind\":\"" ++ kind ++ "\"}")
+
+-- Ф2.3-хвост: the amount-carrying moves (strengthen/weaken read "amount" on the server).
+reviseKnowledgeBy : ∀ {M : Set} → Cfg → (knowledge : ℕ) (kind : String) (amount : ℕ)
+                    → (Result CallErr ⊤ → M) → Cmd M
+reviseKnowledgeBy cfg kid kind amt =
+  postUnit cfg "/knowledge/revise"
+    ("{\"knowledge\":" ++ show kid ++ ",\"kind\":\"" ++ kind ++ "\",\"amount\":" ++ show amt ++ "}")

@@ -61,6 +61,7 @@ data Msg : Set where
   Rebuild        : Msg                                    -- rebuild inference for the selected subject
   GotRebuild     : Result CallErr ⊤ → Msg
   Revise         : ℕ → String → Msg                       -- (knowledge id, kind) — Ф2.3
+  ReviseBy       : ℕ → String → ℕ → Msg                   -- + amount (strengthen/weaken, шаг UI)
   GotRevise      : Result CallErr ⊤ → Msg
 
 ------------------------------------------------------------------------
@@ -86,6 +87,7 @@ updateModel Rebuild m = record m { status = "перестраиваю вывод
 updateModel (GotRebuild (ok _)) m = record m { status = "вывод перестроен, обновляю знания…" }
 updateModel (GotRebuild (err e)) m = record m { status = errText e }
 updateModel (Revise _ kind) m = record m { status = ("ревизия: " ++ kind ++ "…") }
+updateModel (ReviseBy _ kind _) m = record m { status = ("ревизия: " ++ kind ++ "…") }
 updateModel (GotRevise (ok _)) m = record m { status = "ревизия применена, обновляю…" }
 updateModel (GotRevise (err e)) m = record m { status = errText e }
 
@@ -98,6 +100,7 @@ cmdOf (Select sid)  m = batch ( knowledgeOf    (cfg m) sid GotKnowledge
 cmdOf Rebuild            m = rebuildInference (cfg m) (selected m) GotRebuild
 cmdOf (GotRebuild (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge   -- reload after rebuild
 cmdOf (Revise kid kind)  m = reviseKnowledge (cfg m) kid kind GotRevise
+cmdOf (ReviseBy kid kind amt) m = reviseKnowledgeBy (cfg m) kid kind amt GotRevise
 cmdOf (GotRevise (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge    -- reload after revision
 cmdOf _                  _ = ε
 
@@ -126,7 +129,12 @@ private
     ∷ span (class "cxm-rev-actions" ∷ [])
         ( revBtn (kvId k) "confirm"   "✓ подтвердить"
         ∷ revBtn (kvId k) "refute"    "✗ опровергнуть"
-        ∷ revBtn (kvId k) "supersede" "⤳ заменить" ∷ [] )
+        ∷ revBtn (kvId k) "supersede" "⤳ заменить"
+        -- Ф2.3-хвост: amount-ревизии фиксированным шагом ‰50 (без ввода числа)
+        ∷ button (onClick (ReviseBy (kvId k) "strengthen" 50) ∷ class "cxm-rev cxm-rev-strengthen" ∷ [])
+            [ text "▲ +50" ]
+        ∷ button (onClick (ReviseBy (kvId k) "weaken" 50) ∷ class "cxm-rev cxm-rev-weaken" ∷ [])
+            [ text "▼ −50" ] ∷ [] )
     ∷ [] )
 
   epRow : EpisodeView → ℕ → Node Model Msg
