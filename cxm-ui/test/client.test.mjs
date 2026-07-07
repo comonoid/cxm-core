@@ -53,8 +53,8 @@ test('envelope error path ({"error":…} → serverErr)', () => {
   const tag = r.error({ httpErr: () => 'http', serverErr: () => 'server', decodeErr: () => 'decode' });
   eq(tag, 'server');
 });
-test('envelopeUnit ok ({"ok":true}) — write path', () => {
-  const r = matchResult(Client.envelopeUnit(JSON.stringify({ ok: true })));
+test('envelopeUnit ok ({"data":{"ok":true}}) — REAL write-response shape', () => {
+  const r = matchResult(Client.envelopeUnit(JSON.stringify({ data: { ok: true } })));
   if (r.tag !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(r)}`);
 });
 test('envelopeUnit error ({"error":…} → serverErr)', () => {

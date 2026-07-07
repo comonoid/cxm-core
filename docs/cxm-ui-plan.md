@@ -65,10 +65,12 @@
       Тайпчек ✓, `agda --js` → `.mjs` ✓ (визуал — вручную в Ф4-харнессе). Ф2.1+2.2-дисплей одним виджетом.
 - [x] 2.2 **Эпист-бейджи** (дисплей) — знания рендерятся с бейджами type (fact/hypothesis/state/trait) +
       status + ‰confidence + opaque detail (CSS-классы `cxm-badge-<type>`/`cxm-status-<status>` для сайта).
-- [ ] 2.3 Блокнот: действия ревизии (strengthen/weaken/confirm/refute/supersede/redetail)
-      **⚠ БЛОКЕР: у сервера НЕТ роута ревизии** (`updateKnowledgeV` есть в CommandsV, но не подключён;
-      роуты знаний — только create/by-subject/evidence/rebuild). Нужен `POST /knowledge/revise`
-      {knowledge, kind, amount?, detail?} → как Ф0.4 (правка `cxm-server-pg`). Потом — кнопки в knowRow.
+- [x] 2.3 Действия ревизии — сервер: добавлен `POST /knowledge/revise` {knowledge, kind, amount?, detail?}
+      (`parseRev`→KRevision→`updateKnowledgeV`). Клиент: `reviseKnowledge cfg kid kind`. Виджет: кнопки
+      confirm/refute/supersede в knowRow (param-free); успех перезагружает знания. **Live ✓** (create→
+      confirm→status `active`→`confirmed`). **Находка live: okUnit заворачивается в `{"data":{"ok":true}}`**
+      (не bare) — `envelopeUnit` чинён (идёт через `envelope`), тест на РЕАЛЬНОЙ форме. Остаток: param-
+      кнопки strengthen/weaken/redetail (нужен ввод числа/текста в UI).
 - [x] 2.4 Блокнот: кнопка «перестроить вывод» — `Rebuild` (читает `selected` в cmd) → `Client.rebuildInference`
       (`POST /knowledge/rebuild-inference`, обрабатывает `{"ok":true}` через `envelopeUnit`) → перезагрузка знаний.
       Client+ClientCard компилятся; `envelopeUnit` тест 2/2 (ok+error). Роут на сервере уже был.

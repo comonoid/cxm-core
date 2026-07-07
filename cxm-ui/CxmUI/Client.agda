@@ -123,13 +123,12 @@ appointmentsOf cfg sid = postJson cfg "/appointments/by-subject" (bySubjectBody 
 -- Cabinet writes (return {"ok":true} on success, NOT a data envelope)
 ------------------------------------------------------------------------
 
--- {"ok":true} → ok tt ; {"error":…} → serverErr ; else decodeErr
+-- success writes come back as {"data":{"ok":true}} (okUnit is wrapped in the data envelope, same
+-- as every ok response) → reuse `envelope` with a {"ok":…} inner decoder, discard the bool.
 envelopeUnit : String → Result CallErr ⊤
-envelopeUnit resp with decodeString (field′ "ok" bool) resp
+envelopeUnit resp with envelope (field′ "ok" bool) resp
 ... | ok _  = ok tt
-... | err _ with decodeString (field′ "error" errDec) resp
-...   | ok e  = err (serverErr e)
-...   | err m = err (decodeErr m)
+... | err e = err e
 
 private
   postUnit : ∀ {M : Set} → Cfg → String → String → (Result CallErr ⊤ → M) → Cmd M
@@ -140,3 +139,10 @@ private
 -- Ф2.4: re-derive a subject's ACTIVE hypotheses from its event log.
 rebuildInference : ∀ {M : Set} → Cfg → ℕ → (Result CallErr ⊤ → M) → Cmd M
 rebuildInference cfg sid = postUnit cfg "/knowledge/rebuild-inference" (bySubjectBody sid)
+
+-- Ф2.3: revise a knowledge unit. `kind` ∈ confirm|refute|supersede (param-free), or
+-- strengthen|weaken (server reads "amount") / redetail (server reads "detail"). This form covers
+-- the param-free moves; a richer overload can add amount/detail when the notebook needs them.
+reviseKnowledge : ∀ {M : Set} → Cfg → (knowledge : ℕ) (kind : String) → (Result CallErr ⊤ → M) → Cmd M
+reviseKnowledge cfg kid kind =
+  postUnit cfg "/knowledge/revise" ("{\"knowledge\":" ++ show kid ++ ",\"kind\":\"" ++ kind ++ "\"}")

@@ -62,7 +62,8 @@ open import Cxm.Knowledge using
   ; kValidFrom; kValidTo; kDecay; kStatus; kEpisode
   ; EpistemicType; FACT; HYPOTHESIS; STATE; TRAIT
   ; Source; OBSERVED; INFERRED; STATED; IMPORTED
-  ; KStatus; ACTIVE; CONFIRMED; REFUTED; SUPERSEDED )
+  ; KStatus; ACTIVE; CONFIRMED; REFUTED; SUPERSEDED
+  ; KRevision; KStrengthen; KWeaken; KConfirm; KRefute; KSupersede; KRedetail )
 open import Cxm.Users using (User; uTenant; uPassHash; RoleAssignment; raSubject; raRoleId)
 open import Cxm.Bus using (OutboxEntry; obTo; obSubject; obBody; obChannel; obAttempts; obTenant; obStatus; OutStatus; OutPending; OutSent; OutFailed)
 open import Cxm.Store.Base using
@@ -123,6 +124,17 @@ private
 
   is : String → String → Bool
   is = primStringEquality
+
+  -- parse a knowledge revision from the request (Ф2.3): kind + optional amount/detail
+  parseRev : HttpRequest → KRevision
+  parseRev req =
+    let k = fieldOr req "kind" "" in
+    if is k "confirm"    then KConfirm
+    else if is k "refute"    then KRefute
+    else if is k "supersede" then KSupersede
+    else if is k "strengthen" then KStrengthen (natOr req "amount" 0)
+    else if is k "weaken"     then KWeaken (natOr req "amount" 0)
+    else KRedetail (fieldOr req "detail" "")   -- "redetail" (and unknown kinds) rewrite kDetail
 
   stripBearer : String → String
   stripBearer s = go (toList s)
@@ -475,6 +487,8 @@ private
       runW run (attachEvidenceV (natOr req "knowledge" 0) (natOr req "event" 0) ct now) idJson
     else if is m "POST" ∧ is p "/knowledge/rebuild-inference" then
       runW run (rebuildInferenceV (natOr req "subject" 0) ct) okUnit
+    else if is m "POST" ∧ is p "/knowledge/revise" then
+      runW run (updateKnowledgeV (natOr req "knowledge" 0) (parseRev req) ct) okUnit
     else if is m "POST" ∧ is p "/subjects/delete" then
       runW run (cascadeDeleteSubjectV (natOr req "id" 0) ct) okUnit
     else if is m "POST" ∧ is p "/subjects/erase" then

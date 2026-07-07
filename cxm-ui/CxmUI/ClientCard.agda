@@ -55,6 +55,8 @@ data Msg : Set where
   GotExpectations : Result CallErr (List ExpectationView) → Msg
   Rebuild        : Msg                                    -- rebuild inference for the selected subject
   GotRebuild     : Result CallErr ⊤ → Msg
+  Revise         : ℕ → String → Msg                       -- (knowledge id, kind) — Ф2.3
+  GotRevise      : Result CallErr ⊤ → Msg
 
 ------------------------------------------------------------------------
 -- Update (pure) + the effect hook (cmd)
@@ -84,6 +86,9 @@ updateModel (GotExpectations (err e)) m = record m { status = errStr e }
 updateModel Rebuild m = record m { status = "перестраиваю вывод…" }
 updateModel (GotRebuild (ok _)) m = record m { status = "вывод перестроен, обновляю знания…" }
 updateModel (GotRebuild (err e)) m = record m { status = errStr e }
+updateModel (Revise _ kind) m = record m { status = ("ревизия: " ++ kind ++ "…") }
+updateModel (GotRevise (ok _)) m = record m { status = "ревизия применена, обновляю…" }
+updateModel (GotRevise (err e)) m = record m { status = errStr e }
 
 cmdOf : Msg → Model → Cmd Msg
 cmdOf LoadRoster    m = roster (cfg m) GotRoster
@@ -93,6 +98,8 @@ cmdOf (Select sid)  m = batch ( knowledgeOf    (cfg m) sid GotKnowledge
                               ∷ expectationsOf (cfg m) sid GotExpectations ∷ [] )
 cmdOf Rebuild            m = rebuildInference (cfg m) (selected m) GotRebuild
 cmdOf (GotRebuild (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge   -- reload after rebuild
+cmdOf (Revise kid kind)  m = reviseKnowledge (cfg m) kid kind GotRevise
+cmdOf (GotRevise (ok _)) m = knowledgeOf (cfg m) (selected m) GotKnowledge    -- reload after revision
 cmdOf _                  _ = ε
 
 ------------------------------------------------------------------------
@@ -107,12 +114,20 @@ private
         [ text (rvName r) ] ]
 
   -- one knowledge unit → epistemic badge (type + status) + confidence + opaque detail (Ф2.2)
+  revBtn : ℕ → String → String → Node Model Msg
+  revBtn kid kind label =
+    button (onClick (Revise kid kind) ∷ class ("cxm-rev cxm-rev-" ++ kind) ∷ []) [ text label ]
+
   knowRow : KnowledgeView → ℕ → Node Model Msg
   knowRow k _ = li (class ("cxm-know cxm-know-" ++ kvType k) ∷ [])
     ( span (class ("cxm-badge cxm-badge-" ++ kvType k) ∷ []) [ text (kvType k) ]
     ∷ span (class ("cxm-badge cxm-status-" ++ kvStatus k) ∷ []) [ text (kvStatus k) ]
     ∷ span (class "cxm-conf" ∷ []) [ text ("‰" ++ show (kvConfidence k)) ]
     ∷ span (class "cxm-detail" ∷ []) [ text (kvDetail k) ]
+    ∷ span (class "cxm-rev-actions" ∷ [])
+        ( revBtn (kvId k) "confirm"   "✓ подтвердить"
+        ∷ revBtn (kvId k) "refute"    "✗ опровергнуть"
+        ∷ revBtn (kvId k) "supersede" "⤳ заменить" ∷ [] )
     ∷ [] )
 
   epRow : EpisodeView → ℕ → Node Model Msg
