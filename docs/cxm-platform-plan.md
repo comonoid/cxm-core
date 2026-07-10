@@ -153,23 +153,34 @@
 «next wave: psych pack» и нигде не расписана. Ветка независима от site-плана Ф1–Ф3
 (контент), идёт параллельно; фронт-экраны записи — потом отдельной фазой в site-plan.
 
-- [ ] b1. Маршрутный слой пака: `PsychCxm.Server` — таблица обработчиков `/psych/*`
-      (availability, book, session, purchase, package, complete/no-show/cancel/reopen),
-      контракт 1:1 с `PsychCxm.Client`. `CxmServerPg` пак только МОНТИРУЕТ (одна строка
-      mount; сервер не называет вертикаль сверх неё — check-neutrality остаётся зелёным
-      для ядра, слоение по check-layering).
-- [ ] b2. Доменная оркестровка на PG-сторе: book → `Cxm.Schedule`+`Catalog.settings` →
-      Appointment; purchase → `/payments/create` (YooKassa) + пакетный эпизод
-      (`packageProtocol`, `jtbdFor`); списание сессий пакета; close-out действия.
-- [ ] b3. Тексты серверного происхождения (подтверждение записи/оплаты, напоминания) —
-      шаблоны в паке, транспорт в ядре/agdelte. (Исключение из «тексты — слой сайта»:
-      письма рендерит сервер.)
-- [ ] b4. Доменные политики как pack-конфиг: жизненный цикл пакета (срок, возвраты,
-      судьба оплаченных сессий при отмене) — сверх calendar-окон в `Catalog.settings`.
-- [ ] b5. Смоук на scratch-PG: полный цикл клиента — слоты → бронь → оплата → пакет →
-      списание → close-out; адверсарии (чужак/аноним) по уроку F4.
-- **DoD:** психолог продаёт услугу (сессию/пакет) end-to-end на PG-сервере; вся
-  вертикальная семантика — в паке.
+- [x] b1. `PsychCxm.Server` (порт легаси PsychCxm.{Api,Payments} c WAL-Txn на PG-Tx; контракт
+      1:1): /psych/{offerings,availability,book,purchase,session,package,cancel,complete,
+      no-show,reopen,reminders/run} + /payments/{create,record,webhook}. `CxmServerPg`
+      монтирует одной веткой (isPsychPath → tryPsych/payCreateIO); Err→HTTP — общий runW.
+      ВАЖНО (найдено смоуком): tenant пака ≠ defaultTenant — регистрация даёт каждому юзеру
+      СВОЙ tenant; tenant пака = владелец инстанса, `PSYCH_OWNER_LOGIN` (пер-запросный
+      резолв; фолбэк defaultTenant = admin-owner).
+- [x] b2. Оркестровка на Tx: book → validateSlot(Catalog.settings) + resolveOrCreateSubjectV
+      (identity-мост по email) + bookAppointmentV + письмо, одна транзакция; purchase —
+      прямой грант (эпизод c кодом офферинга в jtbd + entitlement; ручная оплата);
+      session — кредит-гейт (sessionsUsedV: не-Canceled потребляют; Insufficient → 402);
+      онлайн-путь: /payments/create (ЮKassa или dev-стаб без YOOKASSA_SHOP_ID: extId в
+      ответе) → pending → webhook payment.succeeded → markPaymentSucceededV (fulfilment-
+      гранты ядра) + пакетный эпизод; редоставка → 200 idempotent (не 4xx — провайдер
+      не должен ретраить).
+- [x] b3. Письмо-подтверждение брони через enqueueNotificationV (outbox; шлёт pg-worker,
+      он же гоняет напоминания; /psych/reminders/run — ручной прогон).
+- [x] b4. Политики: сетка/notice 12h/cancel 24h/горизонт 35d — `Catalog.settings`;
+      отмена в окне = Canceled (кредит вернулся), позже = NoShow (сгорел). Расширенные
+      (срок пакета, возвраты) — ПО ПОТРЕБНОСТИ (заготовка в Catalog).
+- [x] b5. Смоук в site-psych (55/55 ×2): каталог, сетка, бронь+конфликт 409+notice 400,
+      письмо в outbox владельца, пакет 5 (списание/отмена-возврат/complete-сжигание),
+      Insufficient 402, dev-оплата → вебхук-грант → пакет 10 → идемпотентная редоставка.
+- **DoD: ДОСТИГНУТ** (2026-07-10) — психолог продаёт услуги end-to-end на PG-сервере;
+  вертикальная семантика в паке. Хвосты: фронт-экраны услуг (site-plan, отдельная фаза);
+  cross-tenant резолв identity в resolveOrCreateSubjectV (не фильтрует по tenant —
+  на личном инстансе не важно, для площадки И7-территория); live-прогон реальной ЮKassa —
+  при деплое.
 
 ### П4c [M] — Медиа-доставка: gated видео/файлы (добавлено 2026-07-10; ОБЩИЙ СЛОЙ, не пак)
 

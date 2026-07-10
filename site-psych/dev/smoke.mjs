@@ -257,5 +257,66 @@ ok(!JSON.stringify(buyerInbox).includes('автору'),
 const anonInbox = (await v1('/v1/mentions', {})).data;
 ok(Array.isArray(anonInbox) && anonInbox.length === 0, 'Ф4/адверсарий: аноним — пустой инбокс');
 
+// ── П4b: услуги — psych-пак на PG-сервере (API-цикл, фронт услуг — потом) ────
+const P = (path, body) => post(path, body);   // /psych/* и /payments/* — публичные
+const offs = (await (await fetch(API + '/psych/offerings')).json()).data;
+ok(offs.length === 4 && offs.find((o) => o.code === 2)?.sessions === 5,
+   'П4b: GET /psych/offerings — каталог пака (4 позиции)');
+
+const slots = (await P('/psych/availability', { type: 'session' })).data;
+ok(slots.length > 3 && slots[0].end - slots[0].start === 90 * 60,
+   'П4b: availability — сетка Пн–Пт, session = 90 мин');
+
+// бронь: свободный слот ок (+письмо в outbox), повтор того же слота — конфликт, "сейчас" — notice
+const bookOk = await P('/psych/book',
+  { type: 'session', start: slots[0].start, name: 'Клиент Смоук', email: 'client-smoke@cxm.local' });
+ok(bookOk.data?.id > 0, 'П4b: book — бронь свободного слота');
+const bookDup = await P('/psych/book',
+  { type: 'session', start: slots[0].start, name: 'Другой', email: 'other@cxm.local' });
+ok(bookDup.error?.code === 'conflict', 'П4b/адверсарий: тот же слот — 409 conflict');
+const bookNow = await P('/psych/book',
+  { type: 'session', start: Math.floor(Date.now() / 1000) + 60, name: 'Т', email: 't@x' });
+ok(bookNow.error?.code === 'validation', 'П4b/политика: слот ближе notice-окна отвергнут');
+const outboxRows = (await (await fetch(API + '/outbox',
+  { headers: { Authorization: `Bearer ${tok}` } })).json()).data;
+ok(outboxRows.some((r) => r.to === 'client-smoke@cxm.local'),
+   'П4b/b3: письмо-подтверждение легло в outbox владельца (tenant пака = владелец)');
+
+// пакет: purchase(5) → session списывает кредит → cancel в окне возвращает → complete жжёт
+const eng = (await P('/psych/purchase',
+  { offering: 2, name: 'Клиент Смоук', email: 'client-smoke@cxm.local' })).data.id;
+const pkg0 = (await P('/psych/package', { eng })).data;
+ok(pkg0.sessionsTotal === 5 && pkg0.sessionsLeft === 5, 'П4b: пакет 5 сессий открыт (purchase)');
+const s1 = (await P('/psych/session', { eng, start: slots[1].start })).data.id;
+ok((await P('/psych/package', { eng })).data.sessionsLeft === 4, 'П4b: сессия списала кредит (5→4)');
+ok((await P('/psych/cancel', { act: s1 })).data.result === 'canceled',
+   'П4b/политика: отмена в 24h-окне — canceled');
+ok((await P('/psych/package', { eng })).data.sessionsLeft === 5, 'П4b: отмена вернула кредит (4→5)');
+const s2 = (await P('/psych/session', { eng, start: slots[2].start })).data.id;
+await P('/psych/complete', { act: s2 });
+ok((await P('/psych/package', { eng })).data.sessionsLeft === 4, 'П4b: complete сжёг кредит');
+
+// кредит-гейт: пакет на 1 сессию исчерпывается → 402
+const eng1 = (await P('/psych/purchase', { offering: 1, email: 'client-smoke@cxm.local' })).data.id;
+await P('/psych/session', { eng: eng1, start: slots[3].start });
+const over = await P('/psych/session', { eng: eng1, start: slots[4].start });
+ok(over.error?.code === 'insufficient_funds', 'П4b: кредиты пакета исчерпаны — 402 Insufficient');
+
+// онлайн-оплата (dev-стаб ЮKassa): create → pending, webhook succeeded → грант + эпизод,
+// редоставка вебхука → идемпотентный 200
+const pay = (await P('/payments/create',
+  { offering: 3, name: 'Клиент Смоук', email: 'client-smoke@cxm.local' })).data;
+ok(pay.paymentId > 0 && pay.confirmationUrl && pay.extId,
+   'П4b: /payments/create (dev-стаб) — pending + confirmationUrl');
+const wh1 = (await P('/payments/webhook',
+  { event: 'payment.succeeded', object: { id: pay.extId } })).data;
+ok(wh1.granted === true && wh1.engagement > 0, 'П4b: webhook → грант + пакетный эпизод');
+ok((await P('/psych/package', { eng: wh1.engagement })).data.sessionsTotal === 10,
+   'П4b: оплаченный пакет — 10 сессий');
+const wh2 = (await P('/payments/webhook',
+  { event: 'payment.succeeded', object: { id: pay.extId } })).data;
+ok(wh2.granted === false && wh2.idempotent === true,
+   'П4b: редоставка вебхука — идемпотентный no-op (200)');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

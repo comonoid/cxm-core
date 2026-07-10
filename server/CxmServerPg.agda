@@ -78,6 +78,12 @@ open import Cxm.Store.Pg using (runCxmTx)
 open import Cxm.Store.Registry using (cxmHistory)
 open import Cxm.CommandsV
 
+-- П4b: вертикальный пак смонтирован ОДНОЙ веткой route (isPsychPath) — вся /psych-семантика
+-- в PsychCxm.Server; сервер остаётся нейтральным диспетчером (check-layering: пак-импорт
+-- разрешён только серверу, не ядру)
+import PsychCxm.Server as PS
+import Agdelte.Payment.YooKassa as YK
+
 postulate setLineBuffering : IO ⊤
 {-# FOREIGN GHC import System.IO (hSetBuffering, stdout, BufferMode(LineBuffering)) #-}
 {-# COMPILE GHC setLineBuffering = hSetBuffering stdout LineBuffering #-}
@@ -806,14 +812,34 @@ private
                 readShowcase now vw (natOr req "from" 0) (natOr req "limit" 0)) okJson
     else pure (errJson 404 "not_found" "no such /v1 route")
 
-  route : TxRunner → String → HttpRequest → IO HttpResponse
-  route run secret req =
+  -- П4b: tenant пака = tenant ВЛАДЕЛЬЦА-оператора инстанса (PSYCH_OWNER_LOGIN; регистрация
+  -- даёт каждому юзеру свой tenant — defaultTenant годится только для admin-owner'а).
+  -- Пер-запросный резолв: корректно, даже если владелец зарегистрировался после старта.
+  psychTenant : TxRunner → String → IO ℕ
+  psychTenant run lg =
+    if is lg "" then pure defaultTenant
+    else runCxmTx run (findUserByLoginV lg) >>= λ where
+      (inj₂ (just u)) → pure (uTenant u)
+      _               → pure defaultTenant
+
+  route : TxRunner → String → PS.PayConfig → String → HttpRequest → IO HttpResponse
+  route run secret pay ownerLg req =
     let m = reqMethod req ; p = reqPath req in
     if is m "GET" ∧ is p "/health" then
       pure (mkResponse 200 ("{\"ok\":true,\"backend\":\"postgres\",\"contract\":" <> show contractVersion <> "}"))
     else if is m "POST" ∧ is p "/auth/register" then postRegister run req
     else if is m "POST" ∧ is p "/auth/login" then postLogin run secret req
     else if is m "POST" ∧ is p "/verify-identity" then postVerifyIdentity run secret req
+    -- П4b: /psych/* + /payments/{create,record,webhook} — публичная поверхность пака;
+    -- Err→HTTP — общий runW
+    else if PS.isPsychPath p then
+      (getCurrentTime >>= λ now →
+       psychTenant run ownerLg >>= λ pten →
+       if is m "POST" ∧ is p "/payments/create"
+       then (PS.payCreateIO pay req pten now >>= λ tx → runW run tx (λ r → r))
+       else (maybe′ (λ tx → runW run tx (λ r → r))
+                    (pure (errJson 404 "not_found" "no such /psych route"))
+                    (PS.tryPsych pay req pten now)))
     else if isV1 p then
       (v1Tenant run req >>= λ where
         nothing   → pure (errJson 401 "unauthorized" "invalid integration token")
@@ -936,9 +962,16 @@ main =
   getEnvOr "CXM_SENDMAIL" "" >>= λ sendmail →
   getEnvOr "CXM_MAIL_FROM" "noreply" >>= λ mailFrom →
   getEnvOr "CXM_WEBHOOK_SECRET" "" >>= λ whSecret →
+  getEnvOr "PSYCH_OWNER_LOGIN" "" >>= λ ownerLg →
+  getEnvOr "YOOKASSA_SHOP_ID" "" >>= λ ykShop →
+  getEnvOr "YOOKASSA_SECRET_KEY" "" >>= λ ykKey →
+  getEnvOr "YOOKASSA_WEBHOOK_SECRET" "" >>= λ ykWh →
+  getEnvOr "PSYCH_RETURN_URL" "https://localhost/paid" >>= λ ykRet →
   newHttpClientManager >>= λ mgr →
+  YK.newHttpManager >>= λ ykMgr →
   setLineBuffering >>
   let run = connectPerTxn conninfo
+      pay = PS.mkPayConfig ykMgr ykShop ykKey ykWh ykRet
       devMode    = primStringEquality dev "1" ∨ primStringEquality dev "true"
       weakSecret = primStringEquality secret "dev-secret-change-me" ∨ null (toList secret)
   in if weakSecret ∧ not devMode
@@ -952,7 +985,7 @@ main =
               runCxmTx run (ensureAdminV adminLogin ph "" defaultTenant now) >>= λ _ → pure tt) >>
         (if workerSec ≡ᵇ 0 then putStrLn "(pg-worker off)"
          else forkLoopNudged workerSec (workerTick mgr whSecret sendmail mailFrom run leadH maxAtt)) >>
-        putStrLn "CXM headless on POSTGRES (wave-1 surface) + pg-worker" >>
+        putStrLn "CXM headless on POSTGRES (wave-1 surface + psych pack) + pg-worker" >>
         (if null (toList sockPath)
-         then listenHost "127.0.0.1" 8138 (route run secret)
-         else listenUnix sockPath (route run secret)))
+         then listenHost "127.0.0.1" 8138 (route run secret pay ownerLg)
+         else listenUnix sockPath (route run secret pay ownerLg)))
