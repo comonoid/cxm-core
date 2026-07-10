@@ -18,9 +18,10 @@ open import Agda.Builtin.Unit using (⊤; tt)
 open import Agda.Builtin.String using (String; primStringEquality)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_; not)
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; map; length; concat; null; foldr)
+open import Agda.Builtin.Char using (primCharToNat)
+open import Data.List using (List; []; _∷_; map; length; concat; null; foldr; reverse)
 open import Data.Maybe using (Maybe; just; nothing; maybe′)
-open import Data.Nat using (ℕ; suc; _+_; _*_; _≡ᵇ_)
+open import Data.Nat using (ℕ; suc; _+_; _*_; _≡ᵇ_; _≤ᵇ_)
 open import Data.Nat.Show using (show; readMaybe)
 open import Data.Product using (_×_; _,_; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -55,8 +56,8 @@ open import Cxm.Site using (IntTokenRow; itkTenant; itkScope; itkRevokedAt; webh
 open import Cxm.Event using (mkExperienceEvent; Integration; Client; View; eeTimestamp; eePayload)
 open import Cxm.Edge using (SubjectEdge)
 open import Cxm.Entitlement using (Entitlement)
-open import Cxm.Resource using (Resource; rId; rPayload; rAuthor; rCreatedAt; ResourceLink)
-open import Cxm.Social using (feedViews; threadViews; showcaseViews; ContentView; cvLocked; cvResource; ThreadView; tvDepth; tvLocked; tvResource)
+open import Cxm.Resource using (Resource; rId; rPayload; rAuthor; rCreatedAt; rDeletedAt; ResourceLink; Mention; mSubject; mResource)
+open import Cxm.Social using (feedViews; threadViews; showcaseViews; ContentView; mkContentView; cvLocked; cvResource; canList; canAccess; ThreadView; tvDepth; tvLocked; tvResource)
 open import Cxm.Knowledge using
   ( Knowledge; kDetail; kTenant; kId; kSubject; kType; kSource; kConfidence
   ; kValidFrom; kValidTo; kDecay; kStatus; kEpisode
@@ -403,6 +404,38 @@ private
     scan tcSubject >>=T λ subs →
     returnT ("[" <> joinComma (map (cvEnc (nameLookup subs)) (capL lim (feedViews now viewer es ens rs))) <> "]")
 
+  -- Ф4.1 (site-plan): mentions inbox — «все ответы мне»: узлы, где viewer в addressees
+  -- (child-таблица Mention, §8.1). Feed-shaped строки (cvEnc): live + canList (listing-
+  -- политика S7), locked = ¬canAccess, newest-first. Аноним (0) — пусто по построению.
+  readMentions : (now viewer lim : ℕ) → Tx String
+  readMentions now 0 _ = returnT "[]"
+  readMentions now viewer lim =
+    vals tcMention >>=T λ ms → vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens →
+    vals tcResource >>=T λ rs → scan tcSubject >>=T λ subs →
+    returnT ("[" <> joinComma (map (cvEnc (nameLookup subs))
+                                   (capL lim (mentionViews ms es ens rs))) <> "]")
+    where
+      mine : List Mention → ℕ → Bool
+      mine [] _ = false
+      mine (mn ∷ rest) rid =
+        if (mSubject mn ≡ᵇ viewer) ∧ (mResource mn ≡ᵇ rid) then true else mine rest rid
+      mentionViews : List Mention → List SubjectEdge → List Entitlement
+                   → List Resource → List ContentView
+      mentionViews ms es ens rsAll = foldr step [] rsAll
+        where
+          liveRᵇ : Resource → Bool
+          liveRᵇ r = maybe′ (λ _ → false) true (rDeletedAt r)
+          wanted : Resource → Bool
+          wanted r = liveRᵇ r ∧ mine ms (rId r) ∧ canList now (just viewer) es ens rsAll r
+          view : Resource → ContentView
+          view r = mkContentView (not (canAccess now (just viewer) es ens rsAll r)) r
+          insDesc : ContentView → List ContentView → List ContentView
+          insDesc x [] = x ∷ []
+          insDesc x (y ∷ ys) = if rCreatedAt (cvResource y) ≤ᵇ rCreatedAt (cvResource x)
+                               then x ∷ y ∷ ys else y ∷ insDesc x ys
+          step : Resource → List ContentView → List ContentView
+          step r acc = if wanted r then insDesc (view r) acc else acc
+
   readShowcase : (now viewer from lim : ℕ) → Tx String
   readShowcase now viewer from lim =
     vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens →
@@ -438,6 +471,23 @@ private
   mFk : ℕ → Maybe ℕ
   mFk 0 = nothing
   mFk n = just n
+
+  -- addressees на проводе — ПЛОСКИЙ массив "[1,2]" (CxmUI.Client.showIds). Найдено Ф4-смоуком
+  -- (2026-07-10): раньше тут стоял Storage.decodeIds, который парсит [{"id":N}]-строки —
+  -- писатель и читатель расходились, mentions не создавались никогда. Толерантный числовой
+  -- сканер в духе Cxm.Fulfilment: не-цифры — разделители, мусор игнорируется.
+  parseNats : String → List ℕ
+  parseNats s = reverse (go (toList s) [] [])
+    where
+      isDigitᶜ : Char → Bool
+      isDigitᶜ c = let n = primCharToNat c in ((48 ≤ᵇ n) ∧ (n ≤ᵇ 57))
+      flushN : List Char → List ℕ → List ℕ            -- cur — реверснутые цифры числа
+      flushN [] acc = acc
+      flushN cur acc = maybe′ (λ n → n ∷ acc) acc (readMaybe 10 (fromList (reverse cur)))
+      go : List Char → List Char → List ℕ → List ℕ    -- acc реверснут (внешний reverse)
+      go [] cur acc = flushN cur acc
+      go (c ∷ cs) cur acc =
+        if isDigitᶜ c then go cs (c ∷ cur) acc else go cs [] (flushN cur acc)
 
   mStr : String → Maybe String
   mStr s = if is s "" then nothing else just s
@@ -709,15 +759,30 @@ private
                 followSubjectV follower author vt now) idJson
     else if is p "/v1/comment" then
       -- addressees (упоминания, аудит-5 №3): строка-JSON "[1,2]" (jsonGetField берёт только
-      -- string-поля — в духе payload/metadata), decodeIds парсит; отсутствие/мусор = []
+      -- string-поля — в духе payload/metadata), parseNats парсит "[1,2]" (формат
+      -- CxmUI.Client.showIds; НЕ Storage.decodeIds — тот про [{"id":N}]-строки, Ф4-фикс);
+      -- отсутствие/мусор = []
       runW run (resolveOrCreateSubjectV ich iid "" "UTC" vt now >>=T λ author →
                 commentOnV author (fieldOr req "anchor_kind" "resource") (natOr req "anchor_id" 0)
                   (mFk (natOr req "parent" 0)) (mStr (fieldOr req "visibility" ""))
                   (mStr (fieldOr req "listing" "")) (fieldOr req "payload" "{}")
-                  (maybe′ (λ raw → maybe′ (λ xs → xs) [] (decodeIds raw)) []
-                          (jsonGetField "addressees" (reqBody req))) vt now) idJson
+                  (maybe′ parseNats [] (jsonGetField "addressees" (reqBody req))) vt now) idJson
     else if is p "/v1/merge-session" then
-      runW run (mergeSessionV (natOr req "provisional" 0) ich iid vt now) okUnit
+      -- Ф3.2-шов (site-plan): сайт числовых id субъектов НЕ знает — provisional задаётся и
+      -- identity-ПАРОЙ (provisional_channel/provisional_id; дефолт канала "cookie"), резолв
+      -- серверный; вызывающий сайт обязан звать merge ПОСЛЕ своего /auth/login (login
+      -- доказывает контроль login-identity — trust-модель /v1). Уже слитая пара (prov ≡
+      -- канон login-identity) — идемпотентный no-op: mergeV prov prov зациклил бы
+      -- sCanonical на себя.
+      runW run ((let pn = natOr req "provisional" 0 in
+                 if pn ≡ᵇ 0
+                 then resolveViewer (fieldOr req "provisional_channel" "cookie")
+                                    (fieldOr req "provisional_id" "")
+                 else returnT pn) >>=T λ prov →
+                resolveViewer ich iid >>=T λ canon0 →
+                (if not (prov ≡ᵇ 0) ∧ (prov ≡ᵇ canon0)
+                 then returnT tt
+                 else mergeSessionV prov ich iid vt now)) okUnit
     -- cxm-ui Ф3.4 (paywall): viewer-facing offering list + purchase start. Payment success stays
     -- webhook-authoritative (/payments/succeed, admin) — /v1/purchase only records a PENDING
     -- payment for the resolved viewer at the SERVER-side price (client sends no amount).
@@ -731,6 +796,8 @@ private
                   (fieldOr req "name" "") (fieldOr req "email" "") vt now) idJson
     else if is p "/v1/feed" then
       runW run (resolveViewer ich iid >>=T λ vw → readFeed now vw (natOr req "limit" 0)) okJson
+    else if is p "/v1/mentions" then
+      runW run (resolveViewer ich iid >>=T λ vw → readMentions now vw (natOr req "limit" 0)) okJson
     else if is p "/v1/thread" then
       runW run (resolveViewer ich iid >>=T λ vw →
                 readThread now vw (natOr req "root" 0) (natOr req "limit" 0)) okJson

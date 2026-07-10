@@ -509,6 +509,11 @@ private
 feed : ∀ {M : Set} → V1Cfg → (limit : ℕ) → (Result CallErr (List ContentView) → M) → Cmd M
 feed c lim = postV1 c "/v1/feed" (limitOf lim) contentListDec
 
+-- Ф4 (site-plan): mentions inbox — «все ответы мне» (узлы, где viewer в addressees);
+-- feed-shaped rows, та же S7-семантика locked-тизеров.
+mentionsV1 : ∀ {M : Set} → V1Cfg → (limit : ℕ) → (Result CallErr (List ContentView) → M) → Cmd M
+mentionsV1 c lim = postV1 c "/v1/mentions" (limitOf lim) contentListDec
+
 -- Ф3.2: pre-ordered conversation under a root (depth 0 = root, children createdAt-asc).
 thread : ∀ {M : Set} → V1Cfg → (root limit : ℕ) → (Result CallErr (List ThreadNodeView) → M) → Cmd M
 thread c root lim = postV1 c "/v1/thread" (optNat "root" root ++ limitOf lim) threadListDec
@@ -555,3 +560,13 @@ ingestEvent c payload = postV1 c "/v1/events" (eventExtra payload) idDec
 
 mergeSession : ∀ {M : Set} → V1Cfg → (provisional : ℕ) → (Result CallErr ⊤ → M) → Cmd M
 mergeSession c prov = postV1Unit c "/v1/merge-session" (optNat "provisional" prov)
+
+-- Ф3.2 (site-plan): слияние по identity-ПАРЕ — сайт числовых id субъектов не знает.
+-- V1Cfg ЭТОГО вызова несёт LOGIN-identity аккаунта (сайт зовёт ПОСЛЕ успешного /auth/login —
+-- login доказывает контроль канала; trust-модель /v1); provisional-сессия — парой
+-- (обычно "cookie" + visitor-id). Сервер резолвит обоих; повторный merge — no-op.
+mergeExtra : (provChannel provId : String) → String
+mergeExtra pch pid = "," ++ kv "provisional_channel" (q pch) ++ "," ++ kv "provisional_id" (q pid)
+
+mergeSessionBy : ∀ {M : Set} → V1Cfg → (provChannel provId : String) → (Result CallErr ⊤ → M) → Cmd M
+mergeSessionBy c pch pid = postV1Unit c "/v1/merge-session" (mergeExtra pch pid)

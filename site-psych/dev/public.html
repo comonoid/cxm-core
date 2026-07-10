@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Записи и материалы</title>
+<style>
+  :root { color-scheme: light; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #faf9f6; color: #222; }
+  .pub { max-width: 46rem; margin: 0 auto; padding: 1rem; }
+  .pub-header h1 { margin: .4rem 0 .8rem; }
+  .pub-home-link { display: inline-block; margin-bottom: .6rem; }
+  .cxm-toolbar { display: flex; gap: .8rem; align-items: center; margin-bottom: .6rem; }
+  .cxm-status { color: #a55; font-size: .9rem; }
+  .cxm-showcase ul, .cxm-thread ul, .cxm-paywall ul { list-style: none; padding: 0; margin: 0; }
+  .cxm-post, .cxm-thread-node { border-top: 1px dashed #ddd; padding: .5rem 0; }
+  .cxm-post-author { font-weight: 600; margin-right: .6rem; }
+  .cxm-post-ts { color: #889; font-size: .8rem; }
+  .cxm-post-teaser, .cxm-node-teaser { color: #a86; font-style: italic; }
+  .cxm-depth-1 { margin-left: 1.2rem; } .cxm-depth-2 { margin-left: 2.4rem; }
+  .cxm-depth-3 { margin-left: 3.6rem; }
+  .cxm-reply { display: flex; gap: .5rem; margin-top: .6rem; }
+  .cxm-reply-input { flex: 1; padding: .35rem .5rem; }
+  .pub-pay { margin-top: 1.4rem; border-top: 2px solid #e2e2de; padding-top: .6rem; }
+  .cxm-offer { display: flex; gap: .8rem; align-items: center; padding: .3rem 0; }
+  .cxm-buy { cursor: pointer; }
+  .site-md :is(h1,h2,h3) { margin: .4rem 0 .2rem; }
+  .site-md p { margin: .3rem 0; }
+  .site-md code { background: #f0f0ec; padding: 0 .25rem; border-radius: .2rem; }
+  .site-video, .site-youtube { display: block; max-width: 100%; width: 36rem;
+                               border: 0; border-radius: .4rem; margin: .4rem 0; }
+  .site-youtube { aspect-ratio: 16 / 9; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+  // Дев-вход публичной страницы. Конфиг деплоя (в проде зашивается при сборке vhost'а):
+  //   itok  — integration-token сайта: ?itok=… (запоминается в localStorage)
+  //   shelf — id полки-витрины:        ?shelf=N (запоминается)
+  // visitor — cookie-identity зрителя: генерится раз и живёт в localStorage.
+  import { runReactiveApp } from '/runtime/reactive.js';
+  await import('./md-element.mjs');
+  const q = new URLSearchParams(location.search);
+  for (const k of ['itok', 'shelf']) if (q.get(k)) localStorage.setItem('pub-' + k, q.get(k));
+  const itok = localStorage.getItem('pub-itok') || '';
+  const shelf = Number(localStorage.getItem('pub-shelf') || '0');
+  let visitor = localStorage.getItem('pub-visitor');
+  if (!visitor) { visitor = 'v-' + crypto.randomUUID(); localStorage.setItem('pub-visitor', visitor); }
+  if (!itok || !shelf) document.body.insertAdjacentHTML('afterbegin',
+    '<p style="color:#a55;margin:1rem">нужен конфиг: ?itok=&lt;integration-token&gt;&amp;shelf=&lt;id полки&gt;</p>');
+  const Public = (await import('/_build/jAgda.SitePsych.Public.mjs')).default;
+  runReactiveApp({ app: Public.appWith('')(itok)(visitor)(BigInt(shelf)) },
+    document.getElementById('app'));
+</script>
+</body>
+</html>

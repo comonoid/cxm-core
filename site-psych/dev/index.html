@@ -50,12 +50,36 @@
   .cxm-evidence-panel ul { list-style: none; padding: 0; margin: 0; }
   .cxm-rev:disabled, .cxm-obs-add:disabled, .cxm-edit-save:disabled, .cxm-rebuild:disabled
     { opacity: .45; cursor: wait; }
+
+  /* Ф1 «Записи» + Ф2 markdown */
+  .site-tabs { display: flex; gap: .6rem; margin-bottom: .8rem; }
+  .site-tabs button { padding: .35rem .9rem; cursor: pointer; }
+  .site-editor { display: flex; flex-direction: column; gap: .5rem; max-width: 44rem;
+                 background: #fff; border: 1px solid #e2e2de; border-radius: .5rem;
+                 padding: .8rem; }
+  .site-draft { min-height: 7rem; padding: .45rem .6rem; font: inherit; }
+  .site-vis, .site-price { max-width: 14rem; padding: .3rem .5rem; }
+  .site-publish { align-self: flex-start; padding: .4rem 1rem; cursor: pointer; }
+  .site-note { color: #567; min-height: 1.2rem; margin: .5rem 0; }
+  .site-shelve { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  .site-shelve input { max-width: 8rem; padding: .3rem .5rem; }
+  .cxm-post { border-top: 1px dashed #ddd; padding: .5rem 0; list-style: none; }
+  .cxm-post-author { font-weight: 600; margin-right: .6rem; }
+  .cxm-post-ts { color: #889; font-size: .8rem; }
+  .cxm-post-teaser { color: #a86; font-style: italic; }
+  .site-md :is(h1,h2,h3) { margin: .4rem 0 .2rem; }
+  .site-md p { margin: .3rem 0; }
+  .site-md code { background: #f0f0ec; padding: 0 .25rem; border-radius: .2rem; }
+  .site-video, .site-youtube { display: block; max-width: 100%; width: 36rem;
+                               border: 0; border-radius: .4rem; margin: .4rem 0; }
+  .site-youtube { aspect-ratio: 16 / 9; }
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script type="module">
   import { runReactiveApp } from '/runtime/reactive.js';
+  await import('./md-element.mjs');   // <site-markdown>: docsify-стек (marked+DOMPurify)
   const Main = (await import('/_build/jAgda.SitePsych.Main.mjs')).default;
   runReactiveApp(Main, document.getElementById('app'));
 </script>
