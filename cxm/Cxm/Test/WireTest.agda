@@ -311,5 +311,33 @@ private
        , just "resource" , just 3 , just 7 , tt)
   tier1-resource-upd : decResource preUpdResRow
       ≡ just (mkResource 7 1 nothing 1 0 (just "public") "{}" 5 nothing (just 10) nothing
-                (just (mkConvCtx "resource" 3 7)) nothing)
+                (just (mkConvCtx "resource" 3 7 nothing)) nothing)
   tier1-resource-upd = refl
+
+-- Tier-1 (§10 под-локация): a resource row in the PRE-anchor_locator format (through
+-- updated_at) decodes with ccLocator defaulted to nothing
+private
+  preLocResourceSchema : Schema
+  preLocResourceSchema = mkCol "id" CNat ∷ mkCol "tenant" (CFK "tenant") ∷ idxCol "parent" (CFK "resource")
+                       ∷ mkCol "kind" CNat ∷ mkCol "ord" CNat ∷ mkCol "visibility" (CMaybe CStr)
+                       ∷ mkCol "payload" CStr ∷ mkCol "created_at" CNat ∷ mkCol "deleted_at" (CMaybe CNat)
+                       ∷ mkCol "author" (CMaybe CNat) ∷ mkCol "listing" (CMaybe CStr)
+                       ∷ mkCol "anchor_kind" (CMaybe CStr) ∷ mkCol "anchor_id" (CMaybe CNat)
+                       ∷ mkCol "stream_root" (CMaybe CNat)
+                       ∷ mkCol "updated_at" (CMaybe CNat) ∷ []
+  preLocResRow : String
+  preLocResRow = encodeRow preLocResourceSchema
+    (8 , 1 , 0 , 1 , 0 , just "public" , "{}" , 6 , nothing , just 10 , nothing
+       , just "appointment" , just 4 , just 8 , just 9 , tt)
+  tier1-resource-loc : decResource preLocResRow
+      ≡ just (mkResource 8 1 nothing 1 0 (just "public") "{}" 6 nothing (just 10) nothing
+                (just (mkConvCtx "appointment" 4 8 nothing)) (just 9))
+  tier1-resource-loc = refl
+
+-- §10 под-локация: round-trip строки С локатором
+private
+  locRes : Resource
+  locRes = mkResource 9 1 nothing 1 0 (just "public") "{}" 6 nothing (just 10) nothing
+             (just (mkConvCtx "resource" 4 9 (just "t=73"))) nothing
+  roundtrip-locator : decResource (encResource locRes) ≡ just locRes
+  roundtrip-locator = refl

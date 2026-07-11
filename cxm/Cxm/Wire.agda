@@ -685,19 +685,21 @@ resourceSchema = mkCol "id" CNat ∷ mkCol "tenant" (CFK "tenant") ∷ idxCol "p
                ∷ mkCol "author" (CMaybe CNat) ∷ mkCol "listing" (CMaybe CStr)
                ∷ mkCol "anchor_kind" (CMaybe CStr) ∷ mkCol "anchor_id" (CMaybe CNat)
                ∷ mkCol "stream_root" (CMaybe CNat)
-               ∷ mkCol "updated_at" (CMaybe CNat) ∷ []
+               ∷ mkCol "updated_at" (CMaybe CNat)
+               ∷ mkCol "anchor_locator" (CMaybe CStr) ∷ []   -- Tier-1 хвост (§10 под-локация)
 
 resourceToRow : Resource → Row resourceSchema
 resourceToRow r = rId r , rTenant r , fkOrZero (rParent r) , rKind r , rOrder r , rVisibility r
                 , rPayload r , rCreatedAt r , rDeletedAt r , rAuthor r , rListing r
-                , rAnchorKind r , rAnchorId r , rStreamRoot r , rUpdatedAt r , tt
+                , rAnchorKind r , rAnchorId r , rStreamRoot r , rUpdatedAt r
+                , rAnchorLocator r , tt
 
 resourceFromRow : Row resourceSchema → Resource
-resourceFromRow (i , ten , par , k , ord , vis , pl , ca , dd , au , li , ak , ai , sr , ua , tt) =
-  mkResource i ten (zeroToNothing par) k ord vis pl ca dd au li (joinConv ak ai sr) ua
-  where joinConv : Maybe String → Maybe ℕ → Maybe ℕ → Maybe ConvCtx
-        joinConv (just k′) (just a′) (just s′) = just (mkConvCtx k′ a′ s′)
-        joinConv _ _ _ = nothing
+resourceFromRow (i , ten , par , k , ord , vis , pl , ca , dd , au , li , ak , ai , sr , ua , lo , tt) =
+  mkResource i ten (zeroToNothing par) k ord vis pl ca dd au li (joinConv ak ai sr lo) ua
+  where joinConv : Maybe String → Maybe ℕ → Maybe ℕ → Maybe String → Maybe ConvCtx
+        joinConv (just k′) (just a′) (just s′) lo′ = just (mkConvCtx k′ a′ s′ lo′)
+        joinConv _ _ _ _ = nothing
 
 encResource : Resource → String
 encResource r = encodeRow resourceSchema (resourceToRow r)

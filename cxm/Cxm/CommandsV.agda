@@ -798,33 +798,61 @@ unlinkResourceV lid =
   require tcResourceLink lid NotFound >>=T λ _ →
   del tcResourceLink lid
 
-requireAnchorV : (kind : String) (id : ℕ) → Tx ⊤
-requireAnchorV kind i =
-  if      eq "resource"    then (require tcResource i NotFound    >>T returnT tt)
-  else if eq "appointment" then (require tcAppointment i NotFound >>T returnT tt)
-  else if eq "promise"     then (require tcPromise i NotFound     >>T returnT tt)
-  else if eq "entitlement" then (require tcEntitlement i NotFound >>T returnT tt)
-  else if eq "subject"     then (require tcSubject i NotFound     >>T returnT tt)
-  else if eq "episode"     then (require tcEpisode i NotFound     >>T returnT tt)
-  else abortT (Invariant "unknown anchor kind")
-  where eq : String → Bool
-        eq k = primStringEquality kind k
+-- П4-треб.1: РЕЕСТР якорей — «добавить место разговора» = СТРОКА В ТАБЛИЦЕ (existsᵇ +
+-- participantᵇ), никаких новых if-цепочек. F4-семантика participantᵇ: автор комментария
+-- обязан принадлежать аудитории якоря.
+record AnchorKind : Set where
+  constructor mkAnchorKind
+  field
+    akName         : String
+    akExistsᵇ      : ℕ → Tx Bool           -- узел существует
+    akParticipantᵇ : ℕ → ℕ → Tx Bool       -- (anchorId, subject) — субъект в аудитории
+open AnchorKind public
 
--- F4: the author must belong to the anchor's audience — now a Tx read (get per kind)
-anchorParticipantV : (kind : String) (anchorId subject : ℕ) → Tx Bool
-anchorParticipantV kind ai subj =
-  if      eq "resource"    then returnT true
-  else if eq "appointment" then (get tcAppointment ai >>=T λ m → returnT (maybe′ (λ a → apSubject a ≡ᵇ subj) false m))
-  else if eq "promise"     then (get tcPromise ai >>=T λ m → returnT (maybe′ pOk false m))
-  else if eq "entitlement" then (get tcEntitlement ai >>=T λ m → returnT (maybe′ (λ e → enSubject e ≡ᵇ subj) false m))
-  else if eq "subject"     then returnT (ai ≡ᵇ subj)
-  else if eq "episode"     then (get tcEpisode ai >>=T λ m → returnT (maybe′ (λ e → epSubject e ≡ᵇ subj) false m))
-  else returnT false
+private
+  existsIn : (t : TableCode) → ℕ → Tx Bool
+  existsIn t i = get t i >>=T λ m → returnT (maybe′ (λ _ → true) false m)
+
+anchorRegistry : List AnchorKind
+anchorRegistry =
+    mkAnchorKind "resource"    (existsIn tcResource)
+      (λ _ _ → returnT true)                                     -- публичный разговор: политики узла
+  ∷ mkAnchorKind "appointment" (existsIn tcAppointment)
+      (λ ai subj → get tcAppointment ai >>=T λ m →
+                   returnT (maybe′ (λ a → apSubject a ≡ᵇ subj) false m))
+  ∷ mkAnchorKind "promise"     (existsIn tcPromise)
+      (λ ai subj → get tcPromise ai >>=T λ m → returnT (maybe′ (pOk subj) false m))
+  ∷ mkAnchorKind "entitlement" (existsIn tcEntitlement)
+      (λ ai subj → get tcEntitlement ai >>=T λ m →
+                   returnT (maybe′ (λ e → enSubject e ≡ᵇ subj) false m))
+  ∷ mkAnchorKind "subject"     (existsIn tcSubject)
+      (λ ai subj → returnT (ai ≡ᵇ subj))
+  ∷ mkAnchorKind "episode"     (existsIn tcEpisode)
+      (λ ai subj → get tcEpisode ai >>=T λ m →
+                   returnT (maybe′ (λ e → epSubject e ≡ᵇ subj) false m))
+  ∷ []
   where
-    eq : String → Bool
-    eq k = primStringEquality kind k
-    pOk : Promise → Bool
-    pOk p = (pmSubject p ≡ᵇ subj) ∨ maybe′ (λ h → h ≡ᵇ subj) false (pmHolder p)
+    pOk : ℕ → Promise → Bool
+    pOk subj p = (pmSubject p ≡ᵇ subj) ∨ maybe′ (λ h → h ≡ᵇ subj) false (pmHolder p)
+
+private
+  findAnchor : String → Maybe AnchorKind
+  findAnchor kind = go anchorRegistry
+    where go : List AnchorKind → Maybe AnchorKind
+          go [] = nothing
+          go (a ∷ rest) = if primStringEquality (akName a) kind then just a else go rest
+
+requireAnchorV : (kind : String) (id : ℕ) → Tx ⊤
+requireAnchorV kind i with findAnchor kind
+... | nothing = abortT (Invariant "unknown anchor kind")
+... | just a  = akExistsᵇ a i >>=T λ ok →
+                (if ok then returnT tt else abortT NotFound)
+
+-- F4: the author must belong to the anchor's audience
+anchorParticipantV : (kind : String) (anchorId subject : ℕ) → Tx Bool
+anchorParticipantV kind ai subj with findAnchor kind
+... | nothing = returnT false
+... | just a  = akParticipantᵇ a ai subj
 
 private
   addMentionsV : (rid tenant : ℕ) → ℕ → List ℕ → Tx ⊤
@@ -844,8 +872,8 @@ private
 -- nsSelfCreate advisory, which also admits its mention children in the same txn.
 commentOnV : (author : ℕ) (anchorKind : String) (anchorId : ℕ) (parent : Maybe ℕ)
              (vis listing : Maybe String) (payload : String) (addressees : List ℕ)
-             (tenant now : ℕ) → Tx ℕ
-commentOnV author ak ai parent vis listing payload tos ten now =
+             (locator : Maybe String) (tenant now : ℕ) → Tx ℕ
+commentOnV author ak ai parent vis listing payload tos locator ten now =
   lockKey nsSelfCreate ten >>T
   lockRoot tcSubject author >>T
   require tcSubject author NotFound >>=T λ _ →
@@ -864,17 +892,18 @@ commentOnV author ak ai parent vis listing payload tos ten now =
     resolveCtx : ℕ → Maybe ℕ → Tx ConvCtx
     resolveCtx rid nothing  =
       requireAnchorV ak ai >>T
-      returnT (mkConvCtx ak ai rid)
+      returnT (mkConvCtx ak ai rid locator)
     resolveCtx rid (just p) =
       require tcResource p NotFound >>=T λ par →
       returnT (inherit par)
       where
         ownStream : ℕ → ℕ
         ownStream inherited = maybe′ (λ _ → rid) inherited vis
+        -- locator — ВСЕГДА собственный (под-локация ЭТОГО комментария), не родительский
         inherit : Resource → ConvCtx
         inherit par with rAnchorKind par | rAnchorId par
-        ... | just k  | just x  = mkConvCtx k x (ownStream (maybe′ (λ s → s) p (rStreamRoot par)))
-        ... | _       | _       = mkConvCtx "resource" p (ownStream (maybe′ (λ s → s) p (rStreamRoot par)))
+        ... | just k  | just x  = mkConvCtx k x (ownStream (maybe′ (λ s → s) p (rStreamRoot par))) locator
+        ... | _       | _       = mkConvCtx "resource" p (ownStream (maybe′ (λ s → s) p (rStreamRoot par))) locator
 
 ------------------------------------------------------------------------
 -- Pack #6d: worker internals (outbox / reminders / bus). Outbox and bus are queue tables
@@ -1100,14 +1129,16 @@ ingestPeerEventV ch ext cch cext ten now ev = go (emptyStr cext)
         lockSubj : ℕ → Tx ⊤
         lockSubj s = lockRoot tcSubject s                   -- resolve path: row exists; create: advisory held
 
--- on login: alias the session's provisional subject into the login's canonical one, or promote it
+-- on login: alias the session's provisional subject into the login's canonical one, or promote it.
+-- ГАРД САМОСЛИЯНИЯ (долг слоистости 2026-07-12, из серверного слоя): повторный merge той же
+-- пары резолвится в prov ≡ canon — no-op, иначе mergeV поставил бы sCanonical на самого себя.
 mergeSessionV : (provisional : ℕ) (loginChannel loginExtId : String) (tenant now : ℕ) → Tx ⊤
 mergeSessionV prov ch ext ten now =
   lockKey nsIdentityCreate (hashKey (ch <> ":" <> ext)) >>T
   resolveIdent ch ext >>=T λ ms → go ms
   where
     go : Maybe ℕ → Tx ⊤
-    go (just canon) = mergeV prov canon
+    go (just canon) = if prov ≡ᵇ canon then returnT tt else mergeV prov canon
     go nothing      =
       lockRoot tcSubject prov >>T
       require tcSubject prov NotFound >>=T λ s →

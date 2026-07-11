@@ -148,6 +148,6 @@ _ = refl
 
 -- аудит-фикс: anchored узел (коммент) НЕ попадает в ленту как контент
 rComment : Resource
-rComment = mkResource 130 1 nothing 1 0 (just "public") "{}" 91 nothing (just 20) nothing (just (mkConvCtx "appointment" 7 130)) nothing
+rComment = mkResource 130 1 nothing 1 0 (just "public") "{}" 91 nothing (just 20) nothing (just (mkConvCtx "appointment" 7 130 nothing)) nothing
 _ : feedViews 99 10 edges ents (rComment ∷ rPub ∷ []) ≡ mkContentView false rPub ∷ []
 _ = refl

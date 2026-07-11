@@ -16,9 +16,12 @@ open import Cxm.Tenant using (TenantId)
 record ConvCtx : Set where
   constructor mkConvCtx
   field
-    ccAnchorKind : String     -- anchor entity table (closed core set; validated by requireAnchor)
+    ccAnchorKind : String     -- anchor entity table (реестр в CommandsV.anchorRegistry)
     ccAnchorId   : ℕ
     ccStreamRoot : ℕ          -- policy-stream root (§10.5)
+    ccLocator    : Maybe String   -- §10-хвост (П4-треб.1): ПОД-локация якоря — символ в тексте,
+                                  -- секунда видео, точка на картине; opaque, интерпретирует
+                                  -- клиент; ядро НЕ индексирует. Tier-1 (хвостовая CMaybe).
 open ConvCtx public
 
 record Resource : Set where
@@ -67,6 +70,12 @@ rStreamRoot r = mapᵐ ccStreamRoot (rConv r)
   where mapᵐ : ∀ {A B : Set} → (A → B) → Maybe A → Maybe B
         mapᵐ f (just x) = just (f x)
         mapᵐ _ nothing  = nothing
+
+rAnchorLocator : Resource → Maybe String
+rAnchorLocator r = joinᵐ (rConv r)
+  where joinᵐ : Maybe ConvCtx → Maybe String
+        joinᵐ (just c) = ccLocator c
+        joinᵐ nothing  = nothing
 
 ------------------------------------------------------------------------
 -- ResourceLink — the CURATION/REFERENCE graph between content nodes (cxm-social-plan §8):

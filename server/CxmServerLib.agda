@@ -61,8 +61,8 @@ open import Cxm.Site using (IntTokenRow; itkTenant; itkScope; itkRevokedAt; webh
 open import Cxm.Event using (mkExperienceEvent; Integration; Client; View; eeTimestamp; eePayload)
 open import Cxm.Edge using (SubjectEdge)
 open import Cxm.Entitlement using (Entitlement)
-open import Cxm.Resource using (Resource; rId; rPayload; rAuthor; rCreatedAt; rDeletedAt; ResourceLink; Mention; mSubject; mResource)
-open import Cxm.Social using (feedViews; threadViews; showcaseViews; ContentView; mkContentView; cvLocked; cvResource; canList; canAccess; ThreadView; tvDepth; tvLocked; tvResource)
+open import Cxm.Resource using (Resource; rId; rPayload; rAuthor; rCreatedAt; rDeletedAt; rAnchorLocator; ResourceLink; Mention; mSubject; mResource)
+open import Cxm.Social using (feedViews; threadViews; showcaseViews; mentionViews; ContentView; mkContentView; cvLocked; cvResource; canList; canAccess; ThreadView; tvDepth; tvLocked; tvResource)
 open import Cxm.Knowledge using
   ( Knowledge; kDetail; kTenant; kId; kSubject; kType; kSource; kConfidence
   ; kValidFrom; kValidTo; kDecay; kStatus; kEpisode
@@ -420,37 +420,15 @@ private
     scan tcSubject >>=T λ subs →
     returnT ("[" <> joinComma (map (cvEnc (nameLookup subs)) (capL lim (feedViews now viewer es ens rs))) <> "]")
 
-  -- Ф4.1 (site-plan): mentions inbox — «все ответы мне»: узлы, где viewer в addressees
-  -- (child-таблица Mention, §8.1). Feed-shaped строки (cvEnc): live + canList (listing-
-  -- политика S7), locked = ¬canAccess, newest-first. Аноним (0) — пусто по построению.
+  -- Ф4.1 (site-plan): mentions inbox — вьюха теперь в ядре (Cxm.Social.mentionViews, рядом
+  -- с feedViews — долг слоистости закрыт 2026-07-12); тут только fetch + encode.
   readMentions : (now viewer lim : ℕ) → Tx String
   readMentions now 0 _ = returnT "[]"
   readMentions now viewer lim =
     vals tcMention >>=T λ ms → vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens →
     vals tcResource >>=T λ rs → scan tcSubject >>=T λ subs →
     returnT ("[" <> joinComma (map (cvEnc (nameLookup subs))
-                                   (capL lim (mentionViews ms es ens rs))) <> "]")
-    where
-      mine : List Mention → ℕ → Bool
-      mine [] _ = false
-      mine (mn ∷ rest) rid =
-        if (mSubject mn ≡ᵇ viewer) ∧ (mResource mn ≡ᵇ rid) then true else mine rest rid
-      mentionViews : List Mention → List SubjectEdge → List Entitlement
-                   → List Resource → List ContentView
-      mentionViews ms es ens rsAll = foldr step [] rsAll
-        where
-          liveRᵇ : Resource → Bool
-          liveRᵇ r = maybe′ (λ _ → false) true (rDeletedAt r)
-          wanted : Resource → Bool
-          wanted r = liveRᵇ r ∧ mine ms (rId r) ∧ canList now (just viewer) es ens rsAll r
-          view : Resource → ContentView
-          view r = mkContentView (not (canAccess now (just viewer) es ens rsAll r)) r
-          insDesc : ContentView → List ContentView → List ContentView
-          insDesc x [] = x ∷ []
-          insDesc x (y ∷ ys) = if rCreatedAt (cvResource y) ≤ᵇ rCreatedAt (cvResource x)
-                               then x ∷ y ∷ ys else y ∷ insDesc x ys
-          step : Resource → List ContentView → List ContentView
-          step r acc = if wanted r then insDesc (view r) acc else acc
+                                   (capL lim (mentionViews now viewer ms es ens rs))) <> "]")
 
   readShowcase : (now viewer from lim : ℕ) → Tx String
   readShowcase now viewer from lim =
@@ -469,6 +447,8 @@ private
              <> ",\"authorName\":" <> str (maybe′ nameOf "" (rAuthor (tvResource tv)))
              <> ",\"createdAt\":" <> show (rCreatedAt (tvResource tv))
              <> ",\"locked\":" <> (if tvLocked tv then "true" else "false")
+             -- §10 под-локация: аддитивное поле, клиент интерпретирует ("" = нет)
+             <> ",\"anchorLocator\":" <> str (maybe′ (λ l → l) "" (rAnchorLocator (tvResource tv)))
              <> ",\"payload\":" <> str (if tvLocked tv then "" else rPayload (tvResource tv)) <> "}"
 
   readThread : (now viewer root lim : ℕ) → Tx String
@@ -787,28 +767,25 @@ private
       -- addressees (упоминания, аудит-5 №3): строка-JSON "[1,2]" (jsonGetField берёт только
       -- string-поля — в духе payload/metadata), parseNats парсит "[1,2]" (формат
       -- CxmUI.Client.showIds; НЕ Storage.decodeIds — тот про [{"id":N}]-строки, Ф4-фикс);
-      -- отсутствие/мусор = []
+      -- отсутствие/мусор = []. anchor_locator — §10 под-локация (opaque, клиент интерпретирует)
       runW run (resolveOrCreateSubjectV ich iid "" "UTC" vt now >>=T λ author →
                 commentOnV author (fieldOr req "anchor_kind" "resource") (natOr req "anchor_id" 0)
                   (mFk (natOr req "parent" 0)) (mStr (fieldOr req "visibility" ""))
                   (mStr (fieldOr req "listing" "")) (fieldOr req "payload" "{}")
-                  (maybe′ parseNats [] (jsonGetField "addressees" (reqBody req))) vt now) idJson
+                  (maybe′ parseNats [] (jsonGetField "addressees" (reqBody req)))
+                  (mStr (fieldOr req "anchor_locator" "")) vt now) idJson
     else if is p "/v1/merge-session" then
       -- Ф3.2-шов (site-plan): сайт числовых id субъектов НЕ знает — provisional задаётся и
       -- identity-ПАРОЙ (provisional_channel/provisional_id; дефолт канала "cookie"), резолв
       -- серверный; вызывающий сайт обязан звать merge ПОСЛЕ своего /auth/login (login
-      -- доказывает контроль login-identity — trust-модель /v1). Уже слитая пара (prov ≡
-      -- канон login-identity) — идемпотентный no-op: mergeV prov prov зациклил бы
-      -- sCanonical на себя.
+      -- доказывает контроль login-identity — trust-модель /v1). Гард самослияния (повторный
+      -- merge той же пары) — в ядре, mergeSessionV (долг слоистости закрыт 2026-07-12).
       runW run ((let pn = natOr req "provisional" 0 in
                  if pn ≡ᵇ 0
                  then resolveViewer (fieldOr req "provisional_channel" "cookie")
                                     (fieldOr req "provisional_id" "")
                  else returnT pn) >>=T λ prov →
-                resolveViewer ich iid >>=T λ canon0 →
-                (if not (prov ≡ᵇ 0) ∧ (prov ≡ᵇ canon0)
-                 then returnT tt
-                 else mergeSessionV prov ich iid vt now)) okUnit
+                mergeSessionV prov ich iid vt now) okUnit
     -- cxm-ui Ф3.4 (paywall): viewer-facing offering list + purchase start. Payment success stays
     -- webhook-authoritative (/payments/succeed, admin) — /v1/purchase only records a PENDING
     -- payment for the resolved viewer at the SERVER-side price (client sends no amount).

@@ -32,7 +32,7 @@ open import Cxm.Edge using (SubjectEdge; seFrom; seTo; seKind; seValidFrom; seVa
                            ; EdgeKind; follow)
 open import Cxm.Entitlement using (Entitlement; enSubject; enTargetKind; enTarget
                                   ; enValidFrom; enValidTo; EntTarget; TResource)
-open import Cxm.Resource using (Resource; rId; rParent; rAuthor; rVisibility; rListing; rAnchorKind; rCreatedAt; rDeletedAt)
+open import Cxm.Resource using (Resource; rId; rParent; rAuthor; rVisibility; rListing; rAnchorKind; rCreatedAt; rDeletedAt; Mention; mSubject; mResource)
 import Cxm.AccessPolicy as AP
 
 private
@@ -211,6 +211,29 @@ feedViews now viewer edges ents rsAll = foldr step [] rsAll
     isContentᵇ r = maybe′ (λ _ → false) true (rAnchorKind r)
     wanted : Resource → Bool
     wanted r = liveᵇ r ∧ isContentᵇ r ∧ fromFeedAuthor r ∧ canList now (just viewer) edges ents rsAll r
+    view : Resource → ContentView
+    view r = mkContentView (not (canAccess now (just viewer) edges ents rsAll r)) r
+    insDesc : ContentView → List ContentView → List ContentView
+    insDesc x [] = x ∷ []
+    insDesc x (y ∷ ys) = if rCreatedAt (cvResource y) ≤ᵇ rCreatedAt (cvResource x)
+                         then x ∷ y ∷ ys else y ∷ insDesc x ys
+    step : Resource → List ContentView → List ContentView
+    step r acc = if wanted r then insDesc (view r) acc else acc
+
+-- mentions inbox — «все ответы мне»: узлы, где viewer в addressees (child-таблица Mention,
+-- §8.1). Feed-семантика S7: live + canList (listing), locked = ¬canAccess, newest-first.
+-- (Долг слоистости 2026-07-12: переехало из серверного слоя — братья feedViews/threadViews
+-- живут здесь.)
+mentionViews : (now viewer : ℕ) → List Mention → List SubjectEdge → List Entitlement
+             → List Resource → List ContentView
+mentionViews now viewer ms edges ents rsAll = foldr step [] rsAll
+  where
+    liveᵇ : Resource → Bool
+    liveᵇ r = maybe′ (λ _ → false) true (rDeletedAt r)
+    mineᵇ : ℕ → Bool
+    mineᵇ rid = foldr (λ mn acc → ((mSubject mn ≡ᵇ viewer) ∧ (mResource mn ≡ᵇ rid)) ∨ acc) false ms
+    wanted : Resource → Bool
+    wanted r = liveᵇ r ∧ mineᵇ (rId r) ∧ canList now (just viewer) edges ents rsAll r
     view : Resource → ContentView
     view r = mkContentView (not (canAccess now (just viewer) edges ents rsAll r)) r
     insDesc : ContentView → List ContentView → List ContentView
