@@ -249,16 +249,23 @@
 репо — позже, когда продукт назовётся»). Делать ПОСЛЕ П4c/Ф5, ПЕРЕД деплоем (посреди
 достройки платформы не резать; выигрыш проявляется на деплое и П7).
 
-- [ ] р1. Раскол сервера: нейтральная route-библиотека в cxm-core (health/auth/кабинет/v1
-      + runW/withTenant-плаббинг как переиспользуемые куски) + тонкий composition-root
-      `Main` в психо-репо (монтирует psych-пак). Та же форма → клоунам свой Main/репо (П7).
-- [ ] р2. Переезд: `cxm-pack-psych`, `site-psych`, психо-планы (cxm-site-plan + психо-куски
-      отсюда) → новый репо (имя — по имени продукта; кандидат «В точку»). История —
-      `git subtree split`. В cxm-core остаются: cxm, cxm-ui, нейтральный сервер, общие доки.
-- [ ] р3. Механика: реестр `~/.agda/libraries`, пути build-харнесса в agdelte/package.json
-      (`gen:cxm-server-pg` зашивает `-i /home/n/cxm-core/...`), CI/стражи в обоих репо.
-- **DoD:** оба репо собираются и зелены независимо; психо-смоук живёт в психо-репо;
-  cxm-core не содержит слова psych (кроме, возможно, примеров в доках).
+- [x] р1. Раскол сервера (2026-07-11): `server/CxmServerLib.agda` — НЕЙТРАЛЬНАЯ либа
+      (health/auth/кабинет/v1/медиа + бут/воркер/listen), вертикаль — параметром:
+      `Ext = HttpRequest → IO (Maybe HttpResponse)`, вход `serverMain : (TxRunner → IO Ext)
+      → IO ⊤`; публичные помощники composition-root'ов: runExtTx (Tx→HTTP через общий
+      Err-конверт), tenantOfLogin (владелец инстанса), extErrJson. Админ-env переименованы
+      в CXM_ADMIN_* (PSYCH_ADMIN_* принимаются фолбэком).
+- [x] р2. Переезд: `cxm-pack-psych`, `site-psych`, site-plan → `~/psych-platform`
+      (РАБОЧЕЕ имя: продукт ещё не назван — при именовании каталог/remote переименовать,
+      реестр+харнесс перепрописать). История сохранена (`git subtree split` → merge в
+      поддиректории). Composition-root: `server/PsychMain.agda` (env вертикали + PayConfig
+      + Ext из PsychCxm.Server → serverMain) — клон другой вертикали = файл этой же формы.
+- [x] р3. Механика: реестр `~/.agda/libraries`, agdelte package.json (gen: пути на
+      psych-platform; PgDiff/PgBench/PgRollback остались на cxm-core/server), agdelte.cabal
+      (main-is MAlonzo.Code.PsychMain; имя executable оставлено cxm-server-pg).
+- **DoD: ДОСТИГНУТ** — оба репо зелены: смоук 79/79 ×2 из нового пути, стражи OK,
+  cxm-ui 28/28; в cxm-core psych остался только легаси-env-фолбэком (задокументирован).
+  Хвост: remote для psych-platform (нужен выбор имени продукта).
 
 ## Порядок
 ```

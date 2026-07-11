@@ -10,8 +10,12 @@
 -- /identities (bind+verify-mail, ONE atom), /verify-identity (public), /knowledge (+by-subject,
 -- +evidence, +rebuild-inference: re-derive a subject's ACTIVE hypotheses from its event log),
 -- /notifications (verified-recipient guard), /outbox; PG worker loop (outbox/reminders/bus).
--- Next waves: RBAC-authz port, /v1 site surface, social, query/decision, psych pack, transports.
-module CxmServerPg where
+-- Waves 2+ (все смонтированы): RBAC-authz, /v1 site surface, social, медиа; вертикали — Ext-хуком.
+-- Рекомпозиция-2 р1 (2026-07-11): БЫВШИЙ CxmServerPg расколот — это НЕЙТРАЛЬНАЯ
+-- route-библиотека (health/auth/кабинет/v1/медиа + бут/воркер/listen); вертикальный
+-- composition-root (Main) живёт в репо вертикали и монтирует свой пак Ext-хуком
+-- (serverMain). Вертикаль здесь не называется.
+module CxmServerLib where
 
 open import Agda.Builtin.IO using (IO)
 open import Agda.Builtin.Unit using (⊤; tt)
@@ -79,11 +83,16 @@ open import Cxm.Store.Pg using (runCxmTx)
 open import Cxm.Store.Registry using (cxmHistory)
 open import Cxm.CommandsV
 
--- П4b: вертикальный пак смонтирован ОДНОЙ веткой route (isPsychPath) — вся /psych-семантика
--- в PsychCxm.Server; сервер остаётся нейтральным диспетчером (check-layering: пак-импорт
--- разрешён только серверу, не ядру)
-import PsychCxm.Server as PS
-import Agdelte.Payment.YooKassa as YK
+------------------------------------------------------------------------
+-- Ext-шов (р1): расширение вертикали. Composition-root отдаёт хук; nothing = не его путь,
+-- запрос идёт дальше по нейтральной цепочке (v1 → кабинет).
+------------------------------------------------------------------------
+
+Ext : Set
+Ext = HttpRequest → IO (Maybe HttpResponse)
+
+noExt : Ext
+noExt _ = pure nothing
 
 postulate setLineBuffering : IO ⊤
 {-# FOREIGN GHC import System.IO (hSetBuffering, stdout, BufferMode(LineBuffering)) #-}
@@ -849,40 +858,43 @@ private
                 readShowcase now vw (natOr req "from" 0) (natOr req "limit" 0)) okJson
     else pure (errJson 404 "not_found" "no such /v1 route")
 
-  -- П4b: tenant пака = tenant ВЛАДЕЛЬЦА-оператора инстанса (PSYCH_OWNER_LOGIN; регистрация
-  -- даёт каждому юзеру свой tenant — defaultTenant годится только для admin-owner'а).
-  -- Пер-запросный резолв: корректно, даже если владелец зарегистрировался после старта.
-  psychTenant : TxRunner → String → IO ℕ
-  psychTenant run lg =
-    if is lg "" then pure defaultTenant
-    else runCxmTx run (findUserByLoginV lg) >>= λ where
-      (inj₂ (just u)) → pure (uTenant u)
-      _               → pure defaultTenant
-
-  route : TxRunner → String → PS.PayConfig → String → (msec : String) (mttl : ℕ)
+  route : TxRunner → String → Ext → (msec : String) (mttl : ℕ)
         → HttpRequest → IO HttpResponse
-  route run secret pay ownerLg msec mttl req =
+  route run secret ext msec mttl req =
     let m = reqMethod req ; p = reqPath req in
     if is m "GET" ∧ is p "/health" then
       pure (mkResponse 200 ("{\"ok\":true,\"backend\":\"postgres\",\"contract\":" <> show contractVersion <> "}"))
     else if is m "POST" ∧ is p "/auth/register" then postRegister run req
     else if is m "POST" ∧ is p "/auth/login" then postLogin run secret req
     else if is m "POST" ∧ is p "/verify-identity" then postVerifyIdentity run secret req
-    -- П4b: /psych/* + /payments/{create,record,webhook} — публичная поверхность пака;
-    -- Err→HTTP — общий runW
-    else if PS.isPsychPath p then
-      (getCurrentTime >>= λ now →
-       psychTenant run ownerLg >>= λ pten →
-       if is m "POST" ∧ is p "/payments/create"
-       then (PS.payCreateIO pay req pten now >>= λ tx → runW run tx (λ r → r))
-       else (maybe′ (λ tx → runW run tx (λ r → r))
-                    (pure (errJson 404 "not_found" "no such /psych route"))
-                    (PS.tryPsych pay req pten now)))
-    else if isV1 p then
-      (v1Tenant run req >>= λ where
-        nothing   → pure (errJson 401 "unauthorized" "invalid integration token")
-        (just vt) → getCurrentTime >>= λ now → v1dispatch run vt now msec mttl req)
-    else withTenant run secret req (λ ct now → dispatch run secret ct now req)
+    else (ext req >>= λ where       -- р1: поверхность вертикали (ПУБЛИЧНАЯ, до Bearer-зоны)
+      (just r) → pure r
+      nothing →
+        if isV1 p then
+          (v1Tenant run req >>= λ where
+            nothing   → pure (errJson 401 "unauthorized" "invalid integration token")
+            (just vt) → getCurrentTime >>= λ now → v1dispatch run vt now msec mttl req)
+        else withTenant run secret req (λ ct now → dispatch run secret ct now req))
+
+------------------------------------------------------------------------
+-- Публичные помощники composition-root'ов (р1): Tx→HTTP, tenant владельца, конверт ошибок
+------------------------------------------------------------------------
+
+runExtTx : TxRunner → Tx HttpResponse → IO HttpResponse
+runExtTx run tx = runW run tx (λ r → r)
+
+extErrJson : ℕ → String → String → HttpResponse
+extErrJson = errJson
+
+-- tenant владельца-оператора инстанса по логину (регистрация даёт каждому юзеру СВОЙ
+-- tenant — defaultTenant годится только для admin-owner'а). Пер-запросный резолв:
+-- корректно, даже если владелец зарегистрировался после старта.
+tenantOfLogin : TxRunner → String → IO ℕ
+tenantOfLogin run lg =
+  if primStringEquality lg "" then pure defaultTenant
+  else runCxmTx run (findUserByLoginV lg) >>= λ where
+    (inj₂ (just u)) → pure (uTenant u)
+    _               → pure defaultTenant
 
 ------------------------------------------------------------------------
 -- Boot: ledger migrations (schema_migrations over cxmHistory) + seed
@@ -985,39 +997,38 @@ private
   envNat : String → ℕ → IO ℕ
   envNat key d = getEnvOr key (show d) >>= λ s → pure (maybe′ (λ n → n) d (readMaybe 10 s))
 
+-- р1: НЕЙТРАЛЬНЫЙ вход. Composition-root вертикали зовёт serverMain со своим
+-- Ext-инициализатором (тот получает TxRunner, читает СВОИ env, отдаёт хук).
+-- Админ-логин: CXM_ADMIN_LOGIN/PASSWORD (легаси-имена PSYCH_ADMIN_* принимаются фолбэком).
 {-# NON_TERMINATING #-}
-main : IO ⊤
-main =
+serverMain : (TxRunner → IO Ext) → IO ⊤
+serverMain mkExt =
   getEnvOr "CXM_PG" "host=127.0.0.1 dbname=agdelte user=n" >>= λ conninfo →
   getEnvOr "CXM_JWT_SECRET" "dev-secret-change-me" >>= λ secret →
   getEnvOr "CXM_DEV" "" >>= λ dev →
   getEnvOr "CXM_SOCKET" "" >>= λ sockPath →
-  getEnvOr "PSYCH_ADMIN_LOGIN" "" >>= λ adminLogin →
-  getEnvOr "PSYCH_ADMIN_PASSWORD" "" >>= λ adminPass →
+  getEnvOr "PSYCH_ADMIN_LOGIN" "" >>= λ adminLegacy →
+  getEnvOr "CXM_ADMIN_LOGIN" adminLegacy >>= λ adminLogin →
+  getEnvOr "PSYCH_ADMIN_PASSWORD" "" >>= λ adminPassLegacy →
+  getEnvOr "CXM_ADMIN_PASSWORD" adminPassLegacy >>= λ adminPass →
   envNat "CXM_WORKER_SEC" 30 >>= λ workerSec →
   envNat "CXM_MAX_ATTEMPTS" 8 >>= λ maxAtt →
   envNat "CXM_REMIND_LEAD_H" 24 >>= λ leadH →
   getEnvOr "CXM_SENDMAIL" "" >>= λ sendmail →
   getEnvOr "CXM_MAIL_FROM" "noreply" >>= λ mailFrom →
   getEnvOr "CXM_WEBHOOK_SECRET" "" >>= λ whSecret →
-  getEnvOr "PSYCH_OWNER_LOGIN" "" >>= λ ownerLg →
-  getEnvOr "YOOKASSA_SHOP_ID" "" >>= λ ykShop →
-  getEnvOr "YOOKASSA_SECRET_KEY" "" >>= λ ykKey →
-  getEnvOr "YOOKASSA_WEBHOOK_SECRET" "" >>= λ ykWh →
-  getEnvOr "PSYCH_RETURN_URL" "https://localhost/paid" >>= λ ykRet →
   getEnvOr "CXM_MEDIA_SECRET" "dev-media-secret" >>= λ msec →
   envNat "CXM_MEDIA_TTL" 300 >>= λ mttl →
   newHttpClientManager >>= λ mgr →
-  YK.newHttpManager >>= λ ykMgr →
   setLineBuffering >>
   let run = connectPerTxn conninfo
-      pay = PS.mkPayConfig ykMgr ykShop ykKey ykWh ykRet
       devMode    = primStringEquality dev "1" ∨ primStringEquality dev "true"
       weakSecret = primStringEquality secret "dev-secret-change-me" ∨ null (toList secret)
   in if weakSecret ∧ not devMode
      then putStrLn "FATAL: refusing to start — set a strong CXM_JWT_SECRET (or CXM_DEV=1 for local dev)."
      else
-       (getCurrentTime >>= λ now →
+       (mkExt run >>= λ ext →
+        getCurrentTime >>= λ now →
         bootMigrations conninfo now >>
         runCxmTx run (seedTenantsV (mkTenant defaultTenant "default" now ∷ [])) >>= λ _ →
         (if null (toList adminLogin) then pure tt
@@ -1025,7 +1036,7 @@ main =
               runCxmTx run (ensureAdminV adminLogin ph "" defaultTenant now) >>= λ _ → pure tt) >>
         (if workerSec ≡ᵇ 0 then putStrLn "(pg-worker off)"
          else forkLoopNudged workerSec (workerTick mgr whSecret sendmail mailFrom run leadH maxAtt)) >>
-        putStrLn "CXM headless on POSTGRES (wave-1 surface + psych pack) + pg-worker" >>
+        putStrLn "CXM neutral server lib on POSTGRES + pg-worker (Ext mounted)" >>
         (if null (toList sockPath)
-         then listenHost "127.0.0.1" 8138 (route run secret pay ownerLg msec mttl)
-         else listenUnix sockPath (route run secret pay ownerLg msec mttl)))
+         then listenHost "127.0.0.1" 8138 (route run secret ext msec mttl)
+         else listenUnix sockPath (route run secret ext msec mttl)))
