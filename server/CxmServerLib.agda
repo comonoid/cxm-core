@@ -1019,6 +1019,7 @@ serverMain mkExt =
   getEnvOr "CXM_WEBHOOK_SECRET" "" >>= λ whSecret →
   getEnvOr "CXM_MEDIA_SECRET" "dev-media-secret" >>= λ msec →
   envNat "CXM_MEDIA_TTL" 300 >>= λ mttl →
+  envNat "CXM_PORT" 8138 >>= λ port →       -- П5: флот на одной машине — порт per-инстанс
   newHttpClientManager >>= λ mgr →
   setLineBuffering >>
   let run = connectPerTxn conninfo
@@ -1038,5 +1039,5 @@ serverMain mkExt =
          else forkLoopNudged workerSec (workerTick mgr whSecret sendmail mailFrom run leadH maxAtt)) >>
         putStrLn "CXM neutral server lib on POSTGRES + pg-worker (Ext mounted)" >>
         (if null (toList sockPath)
-         then listenHost "127.0.0.1" 8138 (route run secret ext msec mttl)
+         then listenHost "127.0.0.1" port (route run secret ext msec mttl)
          else listenUnix sockPath (route run secret ext msec mttl)))
