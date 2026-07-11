@@ -167,8 +167,8 @@ ok(inA && !inA.getAttribute('target'),
    'Ф2.3: post:N → #/post/N, внутренняя ссылка БЕЗ target=_blank');
 ok(md2.querySelector(`a[href="#/shelf/${shelf}"]`), 'Ф2.3: shelf:N → #/shelf/N');
 const vid = md2.querySelector('video.site-video');
-ok(vid?.getAttribute('src') === '/media/42' && vid?.hasAttribute('controls'),
-   'Ф2.3: ![](video:N) → нативный <video controls src=/media/N>');
+ok(vid?.getAttribute('data-media') === '42' && vid?.hasAttribute('controls'),
+   'Ф2.3: ![](video:N) → нативный <video controls data-media=N> (src — подписанный, П4c)');
 ok(md2.querySelector('iframe.site-youtube')?.getAttribute('src')
      === 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
    'Ф2.3: ![](youtube:ID) → iframe строго youtube-nocookie/embed');
@@ -317,6 +317,97 @@ const wh2 = (await P('/payments/webhook',
   { event: 'payment.succeeded', object: { id: pay.extId } })).data;
 ok(wh2.granted === false && wh2.idempotent === true,
    'П4b: редоставка вебхука — идемпотентный no-op (200)');
+
+// ── П4c: медиа — upload по подписи, gated-выдача src, Range, протухание ──────
+const { startMediaHost } = await import('./media-host.mjs');
+const MPORT = 8199; const MHOST = `http://127.0.0.1:${MPORT}`;
+const mh = await startMediaHost({ secret: 'dev-media-secret',
+  dir: `/tmp/cxm-media-smoke-${process.pid}`, port: MPORT });
+
+const med = (await v1('/v1/media', { identity_channel: 'user_id', identity_id: 'dev@cxm.local',
+  mime: 'video/mp4', visibility: 'entitled' })).data;
+ok(med.id > 0 && /expires=\d+&sig=[0-9a-f]+/.test(med.uploadUrl),
+   'П4c: /v1/media — медиа-ресурс + подписанный uploadUrl');
+ok((await v1('/v1/media', { identity_channel: 'user_id', identity_id: 'dev@cxm.local',
+  mime: 'application/x-evil' })).error?.code === 'validation',
+   'П4c: чужой mime отвергнут');
+
+const putR = await fetch(MHOST + med.uploadUrl, { method: 'PUT',
+  headers: { 'content-type': 'video/mp4' }, body: 'FAKEVIDEO0123456789' });
+ok(putR.status === 200, 'П4c: upload по подписанному uploadUrl принят');
+ok((await fetch(`${MHOST}/media-store/${med.id}/up?expires=9999999999&sig=deadbeef`,
+  { method: 'PUT', body: 'x' })).status === 403,
+   'П4c/адверсарий: upload с битой подписью — 403');
+
+ok((await v1('/v1/media-src', { id: med.id })).error?.code === 'forbidden',
+   'П4c/адверсарий: анониму src не выдан (entitled)');
+const ownSrc = (await v1('/v1/media-src', { identity_channel: 'user_id',
+  identity_id: 'dev@cxm.local', id: med.id })).data;
+ok(/expires=\d+&sig=[0-9a-f]+/.test(ownSrc.url), 'П4c: автору выдан подписанный src');
+const g1 = await fetch(MHOST + ownSrc.url);
+ok(g1.status === 200 && (await g1.text()) === 'FAKEVIDEO0123456789'
+   && g1.headers.get('content-type') === 'video/mp4',
+   'П4c: байты по подписанному URL (mime из сайдкара)');
+const g2 = await fetch(MHOST + ownSrc.url, { headers: { Range: 'bytes=0-3' } });
+ok(g2.status === 206 && (await g2.text()) === 'FAKE'
+   && g2.headers.get('content-range') === `bytes 0-3/19`,
+   'П4c: Range → 206 + Content-Range (перемотка)');
+
+// покупка открывает src; чужак — нет; подпорченная/протухшая подпись — отказ
+const moff = (await post('/offerings', { kind: 1, price: 70000, currency: 'RUB',
+  metadata: `{"grants":[{"kind":"resource","id":${med.id}}]}` }, tok)).data.id;
+const mpay = (await v1('/v1/purchase',
+  { identity_channel: 'cookie', identity_id: 'media-buyer', offering: moff, ext_id: '' })).data.id;
+await post('/payments/succeed', { id: mpay }, admTok);
+ok((await v1('/v1/media-src', { identity_channel: 'cookie', identity_id: 'media-buyer',
+  id: med.id })).data?.url !== undefined,
+   'П4c: купивший получает подписанный src (entitlement)');
+ok((await v1('/v1/media-src', { identity_channel: 'cookie', identity_id: 'media-stranger',
+  id: med.id })).error?.code === 'forbidden',
+   'П4c/адверсарий: не-купивший — 403');
+ok((await fetch(MHOST + ownSrc.url.replace(/sig=[0-9a-f]{6}/, 'sig=000000'))).status === 403,
+   'П4c/адверсарий: подпорченная подпись — 403');
+const { createHmac } = await import('node:crypto');
+const past = Math.floor(Date.now() / 1000) - 10;
+const oldSig = createHmac('sha256', 'dev-media-secret')
+  .update(`/media-store/${med.id}|${past}`).digest('hex');
+ok((await fetch(`${MHOST}/media-store/${med.id}?expires=${past}&sig=${oldSig}`)).status === 403,
+   'П4c: протухший URL — отказ (ссылка «поделиться» умирает сама)');
+mh.close();
+
+// ── Ф5: тема токенами (юнит) + медиа-скин (SVG-хром вокруг нативного плеера) ─
+const Theme = await import('./theme.mjs');
+Theme.toggleTheme(window);
+ok(document.documentElement.getAttribute('data-theme') === 'dark'
+   && window.localStorage.getItem('site-theme') === 'dark',
+   'Ф5.1: переключатель темы — data-theme=dark + localStorage');
+Theme.toggleTheme(window);
+ok(!document.documentElement.getAttribute('data-theme'),
+   'Ф5.1: обратно в светлую (data-theme снят)');
+const skinned = md2.querySelector('.site-player');
+ok(skinned && skinned.querySelector('video[data-media="42"]')
+   && skinned.querySelector('svg.skin-chrome'),
+   'Ф5.2: видео обёрнуто скином — SVG-хром вокруг НАТИВНОГО <video> (controls живые)');
+
+// ── Docsify-страницы: общая трансформация схем с ЧУЖИМИ роутами + файлы на месте ─
+const { applyContentSchemes } = await import('./md-element.mjs');
+const frag = document.createElement('div');
+frag.innerHTML = '<a href="post:7">пост</a> <a href="https://ex.org">внеш</a> '
+  + '<a href="#/uslugi">сайдбар</a> <img src="youtube:abcdef12345">';
+applyContentSchemes(frag, { routes: { post: (i) => `public.html#/post/${i}`,
+  shelf: (i) => `public.html#/shelf/${i}`, thread: (i) => `public.html#/thread/${i}` } });
+ok(frag.querySelector('a[href="public.html#/post/7"]') && !frag.querySelector('a[href^="post:"]'),
+   'Docsify-плагин: post:N → роут ДРУГОЙ поверхности (public.html#/post/N)');
+ok(frag.querySelector('a[href="#/uslugi"]')?.getAttribute('target') !== '_blank'
+   && frag.querySelector('a[href="https://ex.org"]')?.getAttribute('target') === '_blank',
+   'Docsify-плагин: sidebar-ссылки не тронуты, внешние — в новое окно');
+ok(frag.querySelector('iframe.site-youtube'), 'Docsify-плагин: youtube-вставка работает и там');
+const { readFileSync } = await import('node:fs');
+const pagesDir = new URL('./pages/', import.meta.url).pathname;
+ok(readFileSync(pagesDir + '_sidebar.md', 'utf8').includes('uslugi')
+   && readFileSync(pagesDir + 'README.md', 'utf8').includes('```mermaid')
+   && readFileSync(new URL('./pages.html', import.meta.url).pathname, 'utf8').includes('$docsify'),
+   'Docsify-страницы: sidebar/README(mermaid)/pages.html($docsify) на месте');
 
 // ── Фронт услуг: #/book — слоты → выбор → форма → бронь (в браузере) ─────────
 window.location.hash = '#/book';

@@ -37,6 +37,7 @@ open import Agdelte.FFI.Crypto using (hashPassword; verifyPassword; hmacSHA256; 
 open import Agdelte.FFI.HttpClient using (HttpClientManager; newHttpClientManager; httpPostStatus)
 open import Agdelte.FFI.Server using (eqStrCI; StrPair; mkStrPair)
 open import Agdelte.Auth.JWT using (signJWT; verifyJWT)
+open import Agdelte.Auth.SignedUrl using (signUrl)
 open import Agdelte.Auth.RBAC using (Policy; Perm; Role; role; parsePerm; can)
 open import Agdelte.Storage.PgConn using (TxRunner; connectPerTxn; withConnRaw; execConn; queryConn; Conn)
 open import Agdelte.Storage.JsonRow using (decodeIds)
@@ -744,8 +745,18 @@ private
       pick [] = 0
       pick ((_ , i) ∷ rest) = if is (iChannel i) ch then iSubject i else pick rest
 
-  v1dispatch : TxRunner → (vt now : ℕ) → HttpRequest → IO HttpResponse
-  v1dispatch run vt now req =
+  -- П4c: типы медиа, которые вообще принимаем (лимит размера — на media-host)
+  mimeOk : String → Bool
+  mimeOk s = go (toList s)
+    where
+      go : List Char → Bool
+      go ('v' ∷ 'i' ∷ 'd' ∷ 'e' ∷ 'o' ∷ '/' ∷ _) = true
+      go ('a' ∷ 'u' ∷ 'd' ∷ 'i' ∷ 'o' ∷ '/' ∷ _) = true
+      go ('i' ∷ 'm' ∷ 'a' ∷ 'g' ∷ 'e' ∷ '/' ∷ _) = true
+      go _ = false
+
+  v1dispatch : TxRunner → (vt now : ℕ) → (msec : String) (mttl : ℕ) → HttpRequest → IO HttpResponse
+  v1dispatch run vt now msec mttl req =
     let p = reqPath req
         ich = fieldOr req "identity_channel" "cookie"
         iid = fieldOr req "identity_id" ""
@@ -804,6 +815,32 @@ private
       runW run (resolveViewer ich iid >>=T λ vw → readFeed now vw (natOr req "limit" 0)) okJson
     else if is p "/v1/mentions" then
       runW run (resolveViewer ich iid >>=T λ vw → readMentions now vw (natOr req "limit" 0)) okJson
+    -- П4c: медиа. Ресурс = ОБЫЧНЫЙ Resource (payload — метаданные, listing=private: не светится
+    -- в лентах; visibility гейтит выдачу src). Байты живут на media-host (dev: serve.mjs /
+    -- прод: nginx secure-link) — сервер только подписывает URL (SignedUrl: HMAC url|expires).
+    else if is p "/v1/media" then
+      (let mime = fieldOr req "mime" "" in
+       if not (mimeOk mime) then pure (errJson 400 "validation" "unsupported mime")
+       else runW run
+         (resolveOrCreateSubjectV ich iid "" "UTC" vt now >>=T λ author →
+          publishResourceV author nothing (mStr (fieldOr req "visibility" "entitled"))
+            ("{\"kind\":\"media\",\"mime\":\"" <> escapeJsonString mime <> "\"}")
+            (just "private") vt now)
+         (λ rid → okJson ("{\"id\":" <> show rid <> ",\"uploadUrl\":"
+                  <> str (signUrl msec ("/media-store/" <> show rid <> "/up") (now + 3600))
+                  <> "}")))
+    -- выдача src: S7 canAccess (автор / купил / публичное) → подписанный URL с истечением;
+    -- не-entitled — 403 (тизер — забота рендера)
+    else if is p "/v1/media-src" then
+      runW run
+        (resolveViewer ich iid >>=T λ vw →
+         require tcResource (natOr req "id" 0) NotFound >>=T λ r →
+         guardT (maybe′ (λ _ → false) true (rDeletedAt r)) NotFound >>T
+         vals tcEdge >>=T λ es → vals tcEntitlement >>=T λ ens → vals tcResource >>=T λ rs →
+         guardT (canAccess now (mFk vw) es ens rs r) Forbidden >>T
+         returnT (natOr req "id" 0))
+        (λ rid → okJson ("{\"url\":"
+                 <> str (signUrl msec ("/media-store/" <> show rid) (now + mttl)) <> "}"))
     else if is p "/v1/thread" then
       runW run (resolveViewer ich iid >>=T λ vw →
                 readThread now vw (natOr req "root" 0) (natOr req "limit" 0)) okJson
@@ -822,8 +859,9 @@ private
       (inj₂ (just u)) → pure (uTenant u)
       _               → pure defaultTenant
 
-  route : TxRunner → String → PS.PayConfig → String → HttpRequest → IO HttpResponse
-  route run secret pay ownerLg req =
+  route : TxRunner → String → PS.PayConfig → String → (msec : String) (mttl : ℕ)
+        → HttpRequest → IO HttpResponse
+  route run secret pay ownerLg msec mttl req =
     let m = reqMethod req ; p = reqPath req in
     if is m "GET" ∧ is p "/health" then
       pure (mkResponse 200 ("{\"ok\":true,\"backend\":\"postgres\",\"contract\":" <> show contractVersion <> "}"))
@@ -843,7 +881,7 @@ private
     else if isV1 p then
       (v1Tenant run req >>= λ where
         nothing   → pure (errJson 401 "unauthorized" "invalid integration token")
-        (just vt) → getCurrentTime >>= λ now → v1dispatch run vt now req)
+        (just vt) → getCurrentTime >>= λ now → v1dispatch run vt now msec mttl req)
     else withTenant run secret req (λ ct now → dispatch run secret ct now req)
 
 ------------------------------------------------------------------------
@@ -967,6 +1005,8 @@ main =
   getEnvOr "YOOKASSA_SECRET_KEY" "" >>= λ ykKey →
   getEnvOr "YOOKASSA_WEBHOOK_SECRET" "" >>= λ ykWh →
   getEnvOr "PSYCH_RETURN_URL" "https://localhost/paid" >>= λ ykRet →
+  getEnvOr "CXM_MEDIA_SECRET" "dev-media-secret" >>= λ msec →
+  envNat "CXM_MEDIA_TTL" 300 >>= λ mttl →
   newHttpClientManager >>= λ mgr →
   YK.newHttpManager >>= λ ykMgr →
   setLineBuffering >>
@@ -987,5 +1027,5 @@ main =
          else forkLoopNudged workerSec (workerTick mgr whSecret sendmail mailFrom run leadH maxAtt)) >>
         putStrLn "CXM headless on POSTGRES (wave-1 surface + psych pack) + pg-worker" >>
         (if null (toList sockPath)
-         then listenHost "127.0.0.1" 8138 (route run secret pay ownerLg)
-         else listenUnix sockPath (route run secret pay ownerLg)))
+         then listenHost "127.0.0.1" 8138 (route run secret pay ownerLg msec mttl)
+         else listenUnix sockPath (route run secret pay ownerLg msec mttl)))

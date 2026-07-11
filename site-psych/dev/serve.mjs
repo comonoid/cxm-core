@@ -6,11 +6,17 @@ import { createServer, request as httpRequest } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, resolve, dirname, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mediaHandler } from './media-host.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const AGDELTE = process.env.AGDELTE || resolve(process.env.HOME, '.agda/agdelte');
 const API = new URL(process.env.CXM_API || 'http://127.0.0.1:8138');
 const PORT = Number(process.env.PORT || 8136);
+// П4c: медиа-байты (подписанные URL от cxm-server; прод-аналог — nginx secure-link)
+const media = mediaHandler({
+  secret: process.env.CXM_MEDIA_SECRET || 'dev-media-secret',
+  dir: process.env.CXM_MEDIA_DIR || '/tmp/cxm-media',
+});
 
 const MOUNTS = [
   ['/dev/', join(ROOT, 'dev')],
@@ -23,6 +29,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript',
 createServer(async (req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (path === '/' || path === '/dev') { res.writeHead(302, { location: '/dev/' }); return res.end(); }
+  if (await media(req, res)) return;
 
   const mount = MOUNTS.find(([p]) => path.startsWith(p));
   if (mount) {

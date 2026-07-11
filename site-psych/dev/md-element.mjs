@@ -20,9 +20,26 @@
  */
 import { marked } from './vendor/marked.esm.js';
 import DOMPurify from './vendor/purify.es.mjs';
+import skin from './skins/calm.mjs';   // Ф5.2: медиа-скин (декларативный бандл, см. skins/)
 
 const win = globalThis.window;
 const purify = DOMPurify(win);
+
+let skinCssInjected = false;
+function applySkin(v) {                // SVG-хром ВОКРУГ нативного плеера (controls живые)
+  const doc = v.ownerDocument;
+  if (!skinCssInjected) {
+    const st = doc.createElement('style');
+    st.textContent = skin.css;
+    doc.head.appendChild(st);
+    skinCssInjected = true;
+  }
+  const wrap = doc.createElement('div');
+  wrap.className = `site-player skin-${skin.name}`;
+  v.replaceWith(wrap);
+  wrap.appendChild(v);
+  wrap.insertAdjacentHTML('beforeend', skin.chrome);
+}
 
 // дефолтный DOMPurify-regexp + наши сущностные/медиа-схемы
 const ALLOWED_URI = /^(?:(?:(?:f|ht)tps?|mailto|tel|post|shelf|thread|video|youtube):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
@@ -30,34 +47,73 @@ const ALLOWED_URI = /^(?:(?:(?:f|ht)tps?|mailto|tel|post|shelf|thread|video|yout
 const ENTITY = /^(post|shelf|thread):(\d+)$/;
 const VIDEO = /^video:(\d+)$/;
 const YT = /^youtube:([\w-]{5,20})$/;
+const OUR_SCHEME = /^(?:post|shelf|thread|video|youtube):/;
 
-// цели схем: роуты зрительской страницы (Ф3); резолвер = конфиг поверхности —
-// площадка при синдикации подставит сюда домен личного сайта (В3 deep-link)
-const ROUTES = {
+// цели схем: роуты зрительской страницы (Ф3); резолвер = конфиг ПОВЕРХНОСТИ —
+// docsify-страницы передают свои (public.html#/post/N), площадка при синдикации
+// подставит домен личного сайта (В3 deep-link)
+export const DEFAULT_ROUTES = {
   post: (id) => `#/post/${id}`,
   shelf: (id) => `#/shelf/${id}`,
   thread: (id) => `#/thread/${id}`,
 };
-const MEDIA_SRC = (id) => `/media/${id}`;   // контракт доставки — П4c (signed URL внутри)
 
-const OUR_SCHEME = /^(?:post|shelf|thread|video|youtube):/;
+// П4c: src видео — ПОДПИСАННЫЙ URL из /v1/media-src (S7-гейт: автор/купил/публичное).
+// Конфиг зрителя отдаёт обвязка страницы: window.siteV1 = {base, token, channel, id}.
+// Без конфига/без прав — плеер деградирует в пометку «доступно после покупки».
+async function resolveMediaSrc(v, id) {
+  const cfg = win.siteV1 || {};
+  try {
+    const r = await fetch((cfg.base || '') + '/v1/media-src', { method: 'POST',
+      headers: cfg.token ? { 'x-integration-token': cfg.token } : {},
+      body: JSON.stringify({ identity_channel: cfg.channel || 'cookie',
+                             identity_id: cfg.id || '', id: Number(id) }) });
+    const j = await r.json();
+    if (j.data?.url) { v.setAttribute('src', j.data.url); return; }
+  } catch { /* сеть/нет конфига — падаем в locked-пометку */ }
+  v.classList.add('site-media-locked');
+  v.setAttribute('title', 'видео доступно после покупки');
+}
 
-purify.addHook('afterSanitizeAttributes', (node) => {
-  if (node.tagName === 'A' && node.getAttribute('href')) {
-    const href = node.getAttribute('href');
+// ЕДИНАЯ трансформация контент-схем над отрендеренным DOM — её зовут и <site-markdown>,
+// и docsify-плагин страниц (pages.html, со СВОИМИ routes: public.html#/post/N).
+export function applyContentSchemes(container, { routes = DEFAULT_ROUTES } = {}) {
+  const doc = container.ownerDocument;
+  for (const a of [...container.querySelectorAll('a[href]')]) {
+    const href = a.getAttribute('href');
     const m = ENTITY.exec(href);
     if (m) {
-      node.setAttribute('href', ROUTES[m[1]](m[2]));   // внутренняя: наш роут, это же окно
-      node.removeAttribute('target');
-      node.removeAttribute('rel');
+      a.setAttribute('href', routes[m[1]](m[2]));   // внутренняя: роут поверхности, это же окно
+      a.removeAttribute('target');
+      a.removeAttribute('rel');
     } else if (OUR_SCHEME.test(href)) {
-      node.removeAttribute('href');   // медиа-схема/битый id в роли ссылки → инертный текст
-    } else {
-      node.setAttribute('rel', 'noopener');
-      node.setAttribute('target', '_blank');
+      a.removeAttribute('href');      // медиа-схема/битый id в роли ссылки → инертный текст
+    } else if (/^https?:/i.test(href)) {
+      a.setAttribute('rel', 'noopener');            // внешняя — в новое окно
+      a.setAttribute('target', '_blank');
+    }                                  // '#…'/относительные (docsify sidebar) — не трогаем
+  }
+  for (const img of [...container.querySelectorAll('img[src]')]) {
+    const s = img.getAttribute('src') || '';
+    let m;
+    if ((m = VIDEO.exec(s))) {
+      const v = doc.createElement('video');
+      v.setAttribute('controls', '');
+      v.setAttribute('preload', 'metadata');
+      v.className = 'site-video';
+      v.setAttribute('data-media', m[1]);
+      img.replaceWith(v);
+      applySkin(v);                    // Ф5.2: хром скина вокруг нативного плеера
+      resolveMediaSrc(v, m[1]);        // П4c: подписанный src или locked-пометка
+    } else if ((m = YT.exec(s))) {
+      const f = doc.createElement('iframe');
+      f.className = 'site-youtube';
+      f.setAttribute('src', `https://www.youtube-nocookie.com/embed/${m[1]}`);
+      f.setAttribute('allow', 'encrypted-media; picture-in-picture; fullscreen');
+      img.replaceWith(f);
     }
   }
-});
+}
 
 // <site-ts data-ts="unix-секунды"> — человеческое локальное время (даты рендерит JS-слой,
 // Agda проносит только число; тот же шов, что <site-markdown>)
@@ -86,27 +142,9 @@ if (!win.customElements.get('site-markdown')) {
       const src = this.getAttribute('data-md') || '';
       const html = purify.sanitize(marked.parse(src), { ALLOWED_URI_REGEXP: ALLOWED_URI });
       this.innerHTML = `<div class="site-md">${html}</div>`;
-      // медиа-схемы: ![](video:N)/![](youtube:ID) прошли санитайз как <img> — разворачиваем
-      // в фиксированные шаблоны (никакого author-controlled HTML, только валидированный id)
-      const doc = this.ownerDocument;
-      for (const img of [...this.querySelectorAll('img')]) {
-        const s = img.getAttribute('src') || '';
-        let m;
-        if ((m = VIDEO.exec(s))) {
-          const v = doc.createElement('video');
-          v.setAttribute('controls', '');
-          v.setAttribute('preload', 'metadata');
-          v.className = 'site-video';
-          v.setAttribute('src', MEDIA_SRC(m[1]));
-          img.replaceWith(v);
-        } else if ((m = YT.exec(s))) {
-          const f = doc.createElement('iframe');
-          f.className = 'site-youtube';
-          f.setAttribute('src', `https://www.youtube-nocookie.com/embed/${m[1]}`);
-          f.setAttribute('allow', 'encrypted-media; picture-in-picture; fullscreen');
-          img.replaceWith(f);
-        }
-      }
+      // схемы поверх санитизированного DOM: ссылки → роуты, ![](video:/youtube:) →
+      // фиксированные шаблоны (никакого author-controlled HTML, только валидированный id)
+      applyContentSchemes(this);
     }
   }
   win.customElements.define('site-markdown', SiteMarkdown);

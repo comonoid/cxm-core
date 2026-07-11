@@ -183,6 +183,7 @@ private
     ∷ nav (class "pub-nav" ∷ [])
         ( a (attr "href" "#/" ∷ class "pub-home-link" ∷ []) [ text "Главная" ]
         ∷ a (attr "href" "#/book" ∷ class "pub-book-link" ∷ []) [ text "Записаться" ]
+        ∷ a (attr "href" "pages.html#/" ∷ class "pub-pages-link" ∷ []) [ text "О подходе" ]
         ∷ [] )
     ∷ [] )
 
