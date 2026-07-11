@@ -38,6 +38,7 @@ open import CxmUI.Widget using (errText)
 import CxmUI.Showcase as Sh
 import CxmUI.Thread as Th
 import CxmUI.Paywall as Pw
+import SitePsych.Booking as Bk
 
 ------------------------------------------------------------------------
 -- Route (цели контент-схем; парсер тотален: мусор = главная)
@@ -46,6 +47,7 @@ import CxmUI.Paywall as Pw
 data Route : Set where
   RHome : Route
   RPost : ℕ → Route
+  RBook : Route
 
 parseRoute : String → Route
 parseRoute s = go (toList s)
@@ -53,6 +55,7 @@ parseRoute s = go (toList s)
     go : List Char → Route
     go ('/' ∷ 'p' ∷ 'o' ∷ 's' ∷ 't' ∷ '/' ∷ rest) =
       maybe′ RPost RHome (readMaybe 10 (fromList rest))
+    go ('/' ∷ 'b' ∷ 'o' ∷ 'o' ∷ 'k' ∷ _) = RBook
     go _ = RHome
 
 ------------------------------------------------------------------------
@@ -67,6 +70,7 @@ record Model : Set where
     shelfM  : Sh.Model     -- витрина полки сайта (главная)
     thM     : Th.Model     -- тред записи (переинициализируется на "/post/N")
     pwM     : Pw.Model     -- paywall (общий для страниц)
+    bkM     : Bk.Model     -- запись на услуги (#/book)
     rlg rpw rnm : String   -- Ф3.2: форма «сохранить доступ»
     account : String       -- "" = аноним; после merge — login аккаунта
     note    : String       -- статус блока «доступ»
@@ -76,17 +80,22 @@ initModel : (base itok visitor : String) (shelf : ℕ) → Model
 initModel b tok vis shelf =
   let c = mkV1Cfg b tok "cookie" vis in
   mkModel c RHome (Sh.initModel c shelf 0) (Th.initModel c 0 0) (Pw.initModel c "site")
-    "" "" "" "" ""
+    (Bk.initModel b) "" "" "" "" ""
 
 private
   is : String → String → Bool
   is = primStringEquality
 
-  isHome isPost : Model → Bool
+  isHome isPost isBook : Model → Bool
   isHome m with route m
   ... | RHome = true
-  ... | RPost _ = false
-  isPost m = not (isHome m)
+  ... | _ = false
+  isPost m with route m
+  ... | RPost _ = true
+  ... | _ = false
+  isBook m with route m
+  ... | RBook = true
+  ... | _ = false
 
   isAnon : Model → Bool
   isAnon m = is (account m) ""
@@ -103,6 +112,7 @@ data Msg : Set where
   ShelfMsg : Sh.Msg → Msg
   ThMsg    : Th.Msg → Msg
   PwMsg    : Pw.Msg → Msg
+  BkMsg    : Bk.Msg → Msg
   RLg RPw RNm : String → Msg
   DoSave   : Msg                            -- register→login→merge одной кнопкой
   GotReg   : Result CallErr ℕ → Msg
@@ -113,9 +123,11 @@ updateModel : Msg → Model → Model
 updateModel (RouteTo s) m with parseRoute s
 ... | RHome   = record m { route = RHome }
 ... | RPost i = record m { route = RPost i ; thM = Th.initModel (v1c m) i 0 }
+... | RBook   = record m { route = RBook }
 updateModel (ShelfMsg wm) m = record m { shelfM = Sh.updateModel wm (shelfM m) }
 updateModel (ThMsg wm) m = record m { thM = Th.updateModel wm (thM m) }
 updateModel (PwMsg wm) m = record m { pwM = Pw.updateModel wm (pwM m) }
+updateModel (BkMsg wm) m = record m { bkM = Bk.updateModel wm (bkM m) }
 updateModel (RLg s) m = record m { rlg = s }
 updateModel (RPw s) m = record m { rpw = s }
 updateModel (RNm s) m = record m { rnm = s }
@@ -137,9 +149,11 @@ cmdOf (RouteTo s) m with parseRoute s
                       ∷ mapCmd PwMsg (Pw.cmdOf Pw.Load (pwM m)) ∷ [] )
 ... | RPost i = batch ( mapCmd ThMsg (Th.cmdOf Th.Load (Th.initModel (v1c m) i 0))
                       ∷ mapCmd PwMsg (Pw.cmdOf Pw.Load (pwM m)) ∷ [] )
+... | RBook   = mapCmd BkMsg (Bk.cmdOf Bk.Load (bkM m))
 cmdOf (ShelfMsg wm) m = mapCmd ShelfMsg (Sh.cmdOf wm (shelfM m))
 cmdOf (ThMsg wm) m = mapCmd ThMsg (Th.cmdOf wm (thM m))
 cmdOf (PwMsg wm) m = mapCmd PwMsg (Pw.cmdOf wm (pwM m))
+cmdOf (BkMsg wm) m = mapCmd BkMsg (Bk.cmdOf wm (bkM m))
 -- Ф3.2: одна кнопка = register (409 «уже есть» не рвёт цепочку) → login (доказывает контроль
 -- login-identity) → mergeSessionBy (login-identity в конверте, cookie-сессия парой) → перечитать
 cmdOf DoSave m = if emptyCreds m then ε
@@ -151,6 +165,7 @@ cmdOf (GotJwt (ok _)) m =
 cmdOf (GotMerge (ok _)) m with route m
 ... | RHome   = mapCmd ShelfMsg (Sh.cmdOf Sh.Load (shelfM m))
 ... | RPost _ = mapCmd ThMsg (Th.cmdOf Th.Load (thM m))
+... | RBook   = ε
 cmdOf _ _ = ε
 
 ------------------------------------------------------------------------
@@ -165,7 +180,10 @@ private
   headerView : Node Model Msg
   headerView = div (class "pub-header" ∷ [])
     ( h1 [] [ text "Записи и материалы" ]
-    ∷ when isPost (a (attr "href" "#/" ∷ class "pub-home-link" ∷ []) [ text "← на главную" ])
+    ∷ nav (class "pub-nav" ∷ [])
+        ( a (attr "href" "#/" ∷ class "pub-home-link" ∷ []) [ text "Главная" ]
+        ∷ a (attr "href" "#/book" ∷ class "pub-book-link" ∷ []) [ text "Записаться" ]
+        ∷ [] )
     ∷ [] )
 
   -- Ф3.2: «сохранить доступ» — регистрация/вход, привязывающие покупки cookie-сессии к аккаунту
@@ -191,6 +209,8 @@ pubTemplate = div (class "pub" ∷ [])
       [ zoomNode shelfM ShelfMsg (Sh.showcaseTemplateWith mdP) ])
   ∷ when isPost (div (class "pub-post" ∷ [])
       [ zoomNode thM ThMsg (Th.threadTemplateWith mdP) ])
+  ∷ when isBook (div (class "pub-book" ∷ [])
+      [ zoomNode bkM BkMsg Bk.bookingTemplate ])
   ∷ div (class "pub-pay" ∷ [])
       ( h2 [] [ text "Материалы и услуги" ]
       ∷ zoomNode pwM PwMsg Pw.paywallTemplate

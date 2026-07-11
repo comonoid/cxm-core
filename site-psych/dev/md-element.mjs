@@ -59,6 +59,24 @@ purify.addHook('afterSanitizeAttributes', (node) => {
   }
 });
 
+// <site-ts data-ts="unix-секунды"> — человеческое локальное время (даты рендерит JS-слой,
+// Agda проносит только число; тот же шов, что <site-markdown>)
+if (!win.customElements.get('site-ts')) {
+  class SiteTs extends win.HTMLElement {
+    static get observedAttributes() { return ['data-ts']; }
+    connectedCallback() { this.renderTs(); }
+    attributeChangedCallback() { this.renderTs(); }
+    renderTs() {
+      const ts = Number(this.getAttribute('data-ts') || '0');
+      this.textContent = ts
+        ? new Date(ts * 1000).toLocaleString('ru-RU',
+            { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '';
+    }
+  }
+  win.customElements.define('site-ts', SiteTs);
+}
+
 if (!win.customElements.get('site-markdown')) {
   class SiteMarkdown extends win.HTMLElement {
     static get observedAttributes() { return ['data-md']; }

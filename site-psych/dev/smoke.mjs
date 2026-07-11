@@ -318,5 +318,42 @@ const wh2 = (await P('/payments/webhook',
 ok(wh2.granted === false && wh2.idempotent === true,
    'П4b: редоставка вебхука — идемпотентный no-op (200)');
 
+// ── Фронт услуг: #/book — слоты → выбор → форма → бронь (в браузере) ─────────
+window.location.hash = '#/book';
+window.dispatchEvent(new window.Event('hashchange'));
+await until(() => pub.querySelectorAll('.bk-pick').length > 0, 'слоты записи отрендерены');
+ok(pub.querySelector('.bk-pick site-ts')?.textContent.match(/\d{2}\.\d{2}.*\d{2}:\d{2}/),
+   'Фронт услуг: слот показан человеческим временем (<site-ts>)');
+const slotBtns = pub.querySelectorAll('.bk-pick');
+const freeCount = slotBtns.length;
+
+// пустая форма — не уходит на сервер, человеческая подсказка
+pub.querySelector('.bk-go').click();
+await until(() => pub.querySelector('.bk-status').textContent.includes('заполните'),
+  'валидация формы записи');
+ok(true, 'Фронт услуг: пустая форма — подсказка, запрос не ушёл');
+
+// выбор слота + форма → бронь → статус «вы записаны» → слоты перечитаны (занятый исчез)
+slotBtns[0].click();
+await until(() => /\d{2}:\d{2}/.test(pub.querySelector('.bk-chosen site-ts')?.textContent || ''),
+  'выбранный слот показан');
+ptype('.bk-name', 'Браузерный Клиент'); ptype('.bk-email', 'browser-client@cxm.local');
+pub.querySelector('.bk-go').click();
+await until(() => /вы записаны — встреча #\d+/.test(pub.querySelector('.bk-done').textContent),
+  'бронь через браузер');
+ok(true, 'Фронт услуг: слот → форма → «вы записаны» (PsychCxm.Client как SDK слоя 3)');
+await until(() => pub.querySelectorAll('.bk-pick').length === freeCount - 1,
+  'слоты перечитаны');
+ok(true, 'Фронт услуг: занятый слот исчез из сетки после брони');
+
+// intro-переключатель: другая длительность сетки (30 мин)
+const tySel = pub.querySelector('.bk-ty');
+tySel.value = 'intro';
+tySel.dispatchEvent(new window.Event('change', { bubbles: true }));
+await sleep(300);
+const introSlots = (await P('/psych/availability', { type: 'intro' })).data;
+ok(introSlots[0].end - introSlots[0].start === 30 * 60,
+   'Фронт услуг: intro-сетка 30-минутная (select переключает тип)');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
