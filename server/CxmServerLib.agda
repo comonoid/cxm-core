@@ -835,12 +835,12 @@ private
                 readShowcase now vw (natOr req "from" 0) (natOr req "limit" 0)) okJson
     else pure (errJson 404 "not_found" "no such /v1 route")
 
-  route : TxRunner → String → Ext → (msec : String) (mttl : ℕ)
+  route : TxRunner → String → Ext → (msec : String) (mttl : ℕ) (build : String)
         → HttpRequest → IO HttpResponse
-  route run secret ext msec mttl req =
+  route run secret ext msec mttl build req =
     let m = reqMethod req ; p = reqPath req in
     if is m "GET" ∧ is p "/health" then
-      pure (mkResponse 200 ("{\"ok\":true,\"backend\":\"postgres\",\"contract\":" <> show contractVersion <> "}"))
+      pure (mkResponse 200 ("{\"ok\":true,\"backend\":\"postgres\",\"contract\":" <> show contractVersion <> ",\"build\":" <> str build <> "}"))
     else if is m "POST" ∧ is p "/auth/register" then postRegister run req
     else if is m "POST" ∧ is p "/auth/login" then postLogin run secret req
     else if is m "POST" ∧ is p "/verify-identity" then postVerifyIdentity run secret req
@@ -1011,6 +1011,7 @@ serverMain mkExt =
   getEnvOr "CXM_MEDIA_SECRET" "dev-media-secret" >>= λ msec →
   envNat "CXM_MEDIA_TTL" 300 >>= λ mttl →
   envNat "CXM_PORT" 8138 >>= λ port →       -- П5: флот на одной машине — порт per-инстанс
+  getEnvOr "CXM_BUILD" "dev" >>= λ build →  -- аудит-3: build-стамп в /health (верификация свопа)
   newHttpClientManager >>= λ mgr →
   setLineBuffering >>
   let run = connectPerTxn conninfo
@@ -1030,5 +1031,5 @@ serverMain mkExt =
          else forkLoopNudged workerSec (workerTick mgr whSecret sendmail mailFrom run leadH maxAtt)) >>
         putStrLn "CXM neutral server lib on POSTGRES + pg-worker (Ext mounted)" >>
         (if null (toList sockPath)
-         then listenHost "127.0.0.1" port (route run secret ext msec mttl)
-         else listenUnix sockPath (route run secret ext msec mttl)))
+         then listenHost "127.0.0.1" port (route run secret ext msec mttl build)
+         else listenUnix sockPath (route run secret ext msec mttl build)))
