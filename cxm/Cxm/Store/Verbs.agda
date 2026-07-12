@@ -152,6 +152,7 @@ _                    ≟ _                    = nothing
 data Req : Set where
   rLockRoot : TableCode → ℕ → Req                    -- PG: SELECT … FOR UPDATE (row must exist, A3)
   rLockKey  : (classid objid : ℕ) → Req              -- PG: pg_advisory_xact_lock (creates)
+  rTryLockKey : (classid objid : ℕ) → Req            -- PG: pg_TRY_advisory_xact_lock (лидер-гейт)
   rGet      : (t : TableCode) → ℕ → Req
   rByIndex  : (t : TableCode) (pos key : ℕ) → Req    -- ℕ-key secondary index
   rByCol    : (t : TableCode) (col key : String) → Req   -- audit U2: string lookup (login/token/…)
@@ -163,6 +164,7 @@ data Req : Set where
 Ans : Req → Set
 Ans (rLockRoot _ _)  = ⊤
 Ans (rLockKey _ _)   = ⊤
+Ans (rTryLockKey _ _) = Bool
 Ans (rGet t _)       = Maybe (Val t)
 Ans (rByIndex _ _ _) = List ℕ
 Ans (rByCol t _ _)   = List (ℕ × Val t)
@@ -216,6 +218,9 @@ fresh = opT rFresh
 
 lockKey : (classid objid : ℕ) → Tx ⊤
 lockKey c o = opT (rLockKey c o)
+
+tryLockKey : (classid objid : ℕ) → Tx Bool          -- лидер-гейт: false = лок у другого инстанса
+tryLockKey c o = opT (rTryLockKey c o)
 
 lockRoot : TableCode → ℕ → Tx ⊤
 lockRoot t k = opT (rLockRoot t k)
@@ -315,6 +320,9 @@ nsTokenMint = 4
 
 nsSelfCreate : ℕ                   -- generic self-rooted creates (account/offering/resource/payment),
 nsSelfCreate = 5                   -- objid = tenant: per-tenant serialization (throughput → PHOAS)
+
+nsWorker : ℕ                       -- лидер-гейт воркера (бесшовный reload: два сервера, один тикает)
+nsWorker = 6
 
 -- deterministic string hash (djb2) for advisory objids. REDUCED mod 2^31-1 at every step:
 -- pg_advisory_xact_lock takes int4, so the objid MUST fit 31 bits (and the accumulator must

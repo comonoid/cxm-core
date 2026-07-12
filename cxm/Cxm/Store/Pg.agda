@@ -75,6 +75,15 @@ exec c (rLockRoot t id) =
 exec c (rLockKey cl o) =
   queryConn c ("SELECT pg_advisory_xact_lock(" <> show cl <> ", " <> show o <> ")") >>= λ _ →
   pure (inj₂ tt)                                   -- int4 pair: hashKey is 31-bit bounded
+exec c (rTryLockKey cl o) =
+  -- boolean через id-парсер: ряд есть ⟺ лок взят (без нового декодера)
+  queryConn c ("SELECT 1 AS \"id\" WHERE pg_try_advisory_xact_lock("
+                 <> show cl <> ", " <> show o <> ")") >>= λ j →
+  pure (ans (decodeIds j))
+  where ans : Maybe (List ℕ) → Err ⊎ Bool
+        ans (just (_ ∷ _)) = inj₂ true
+        ans (just [])      = inj₂ false
+        ans nothing        = inj₁ (pgErr "trylock reply decode")
 exec c (rGet t k) =
   queryConn c (selectByNat (tableName t) (schemaOf t) "id" k) >>= λ j →
   pure (ans (decodeRows (schemaOf t) j))

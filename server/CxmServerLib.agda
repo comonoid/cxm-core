@@ -944,12 +944,17 @@ private
             putStrLn ("email → " <> obTo o <> (if ok then " sent" else " FAILED")) >> pure ok)
     else pure true
 
+  -- бесшовный reload: claim АТОМАРЕН (claimOutboxV: FOR UPDATE + попытка учтена при claim'е) —
+  -- два сервера в overlap не отправят одно письмо дважды; провал send не требует mark
+  -- (backoff уже взведён claim'ом)
   deliverOne : HttpClientManager → String → String → String → TxRunner → ℕ → ℕ → ℕ → IO ⊤
   deliverOne mgr secret sendmail mailFrom run now maxAtt oid =
-    runCxmTx run (get tcOutbox oid) >>= λ where
-      (inj₂ (just o)) → deliverVia mgr secret sendmail mailFrom now o >>= λ ok →
-        (if ok then runCxmTx run (markSentV oid)
-               else runCxmTx run (markAttemptV oid now maxAtt)) >>= λ _ → pure tt
+    runCxmTx run (claimOutboxV oid now maxAtt) >>= λ where
+      (inj₂ true) → runCxmTx run (get tcOutbox oid) >>= λ where
+        (inj₂ (just o)) → deliverVia mgr secret sendmail mailFrom now o >>= λ ok →
+          (if ok then (runCxmTx run (markSentV oid) >>= λ _ → pure tt)
+                 else pure tt)
+        _ → pure tt
       _ → pure tt
 
   deliverAll : HttpClientManager → String → String → String → TxRunner → ℕ → ℕ → List ℕ → IO ⊤
@@ -957,11 +962,16 @@ private
   deliverAll mgr sec sm mf run now maxAtt (i ∷ is) =
     deliverOne mgr sec sm mf run now maxAtt i >> deliverAll mgr sec sm mf run now maxAtt is
 
+  -- бесшовный reload: ЛИДЕР-ГЕЙТ тика (tryLockKey nsWorker, xact-scoped try) — при overlap
+  -- двух серверов remind/bus/выборку исполняет один; отправки дополнительно под claim'ом
   workerTick : HttpClientManager → String → String → String → TxRunner → ℕ → ℕ → IO ⊤
   workerTick mgr sec sm mf run leadH maxAtt = getCurrentTime >>= λ now →
-    runCxmTx run (remindDueAppointmentsV now (leadH * 3600)) >>= λ _ →
-    runCxmTx run dispatchBusV >>= λ _ →
-    runCxmTx run (dueOutboxV now) >>= λ where
+    runCxmTx run (tryLockKey nsWorker 0 >>=T λ lead →
+                  if lead
+                  then (remindDueAppointmentsV now (leadH * 3600) >>=T λ _ →
+                        dispatchBusV >>=T λ _ →
+                        dueOutboxV now)
+                  else returnT []) >>= λ where
       (inj₂ ids) → deliverAll mgr sec sm mf run now maxAtt ids >>
         (if null ids then pure tt else putStrLn ("pg-worker delivered: " <> show (length ids)))
       (inj₁ _)   → pure tt

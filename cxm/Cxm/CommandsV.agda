@@ -41,7 +41,7 @@ open import Cxm.Collections using (mkEvidence)
 open import Cxm.Episode using (mkEpisode)
 open import Cxm.Event using (ExperienceEvent; eeSubject; eePayload; eeEmotion)
 open import Cxm.Protocol using (Protocol; prInitialState; prName)
-open import Cxm.Bus using (OutboxEntry; mkOutbox; OutPending; OutSent; OutFailed; obStatus; obAttempts; obLastAttempt; evProcessed)
+open import Cxm.Bus using (OutboxEntry; mkOutbox; OutStatus; OutPending; OutSent; OutFailed; obStatus; obAttempts; obLastAttempt; evProcessed)
 open import Cxm.Appointment using
   ( Appointment; mkAppointment; apSubject; apResource; apStartsAt; apDurationMin; apStatus
   ; ApptStatus; ApScheduled; ApCanceled; ApNoShow; ApCompleted )
@@ -939,6 +939,25 @@ markAttemptV oid now maxAtt =
   put tcOutbox (record o { obAttempts    = suc (obAttempts o)
                          ; obLastAttempt = just now
                          ; obStatus      = if maxAtt ≤ᵇ suc (obAttempts o) then OutFailed else OutPending })
+
+-- АТОМАРНЫЙ CLAIM письма (бесшовный reload: два сервера в overlap НЕ шлют дважды).
+-- lockRoot (FOR UPDATE) сериализует конкурентов; попытка учитывается ПРИ claim'е
+-- (lastAttempt=now ⇒ у второго сервера строка уже не due — backoff-щит), успех
+-- отмечает markSentV, провал ничего не делает (попытка уже посчитана). true = слать.
+claimOutboxV : (oid now maxAttempts : ℕ) → Tx Bool
+claimOutboxV oid now maxAtt =
+  lockRoot tcOutbox oid >>T
+  require tcOutbox oid NotFound >>=T λ o →
+  if pendingᵇ (obStatus o) ∧ obDueV now o
+  then (if maxAtt ≤ᵇ suc (obAttempts o)
+        then (put tcOutbox (record o { obStatus = OutFailed }) >>T returnT false)
+        else (put tcOutbox (record o { obAttempts = suc (obAttempts o)
+                                     ; obLastAttempt = just now }) >>T returnT true))
+  else returnT false
+  where
+    pendingᵇ : OutStatus → Bool
+    pendingᵇ OutPending = true
+    pendingᵇ _          = false
 
 private
   notRemindedᵇ : Maybe ℕ → Bool

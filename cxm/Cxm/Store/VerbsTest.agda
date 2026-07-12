@@ -136,6 +136,7 @@ handlerP (rLockRoot t id) st with lookA id (tbls st t)
 ... | just _  = inj₂ (tt , record st { pLocks = (code t , id) ∷ pLocks st })
 ... | nothing = inj₁ NotFound   -- domain shape (existence-hidden 404); also catches lock-fresh-id (A3)
 handlerP (rLockKey c o) st = inj₂ (tt , record st { pLocks = (1000 + c , o) ∷ pLocks st })
+handlerP (rTryLockKey c o) st = inj₂ (true , record st { pLocks = (1000 + c , o) ∷ pLocks st })   -- pure: один актор — лок всегда наш
 handlerP (rGet t k)       st = inj₂ (lookA k (tbls st t) , st)
 handlerP (rByIndex t p k) st with ixExtract t p
 ... | nothing = inj₁ (Invariant "byIx: position not in the ixExtract registry")
@@ -676,13 +677,13 @@ _ = refl
 
 -- F4: a STRANGER (subject 2) cannot start a conversation on subject 1's appointment…
 _ : errOf (runTx handlerP
-      (commentOnV 2 "appointment" 11 nothing nothing nothing "hi" [] 2 7) stC)
+      (commentOnV 2 "appointment" 11 nothing nothing nothing "hi" [] nothing 2 7) stC)
   ≡ just Forbidden
 _ = refl
 
 -- …but the participant (subject 1) can; the comment node lands
 _ : outId (runTx handlerP
-      (commentOnV 1 "appointment" 11 nothing nothing nothing "hi" [] 2 7) stC) ≡ just 100
+      (commentOnV 1 "appointment" 11 nothing nothing nothing "hi" [] nothing 2 7) stC) ≡ just 100
 _ = refl
 
 -- /v1 owner-guard: only the author edits their post
