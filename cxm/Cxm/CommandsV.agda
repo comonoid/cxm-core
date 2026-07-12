@@ -949,7 +949,9 @@ claimOutboxV oid now maxAtt =
   lockRoot tcOutbox oid >>T
   require tcOutbox oid NotFound >>=T λ o →
   if pendingᵇ (obStatus o) ∧ obDueV now o
-  then (if maxAtt ≤ᵇ suc (obAttempts o)
+  -- аудит zero-downtime №3 (off-by-one): гейт по УЖЕ сделанным попыткам — иначе
+  -- последняя (maxAtt-я) отправка никогда не выполнялась
+  then (if maxAtt ≤ᵇ obAttempts o
         then (put tcOutbox (record o { obStatus = OutFailed }) >>T returnT false)
         else (put tcOutbox (record o { obAttempts = suc (obAttempts o)
                                      ; obLastAttempt = just now }) >>T returnT true))

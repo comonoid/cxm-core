@@ -902,6 +902,10 @@ private
 
   bootMigrations : String → ℕ → IO ⊤
   bootMigrations conninfo now = withConnRaw conninfo λ c →
+    -- аудит zero-downtime №1: параллельный boot двух серверов на свежей БД падал на гонке
+    -- CREATE IF NOT EXISTS (duplicate key в pg_type). SESSION-advisory-лок сериализует весь
+    -- boot (лок отпускается закрытием соединения withConnRaw); ledger дальше идемпотентен.
+    queryConn c "SELECT pg_advisory_lock(42, 0)" >>= λ _ →
     execConn c "CREATE TABLE IF NOT EXISTS \"schema_migrations\" (\"id\" BIGINT NOT NULL PRIMARY KEY, \"applied_at\" BIGINT NOT NULL);" >>= λ _ →
     queryConn c "SELECT \"id\" FROM \"schema_migrations\" ORDER BY \"id\"" >>= λ j →
     applySteps c now 1 (maybe′ (λ x → x) [] (decodeIds j)) (map up cxmHistory) >>= λ n →
