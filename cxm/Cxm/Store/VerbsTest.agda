@@ -26,7 +26,7 @@ open import Cxm.Payment using (paySubject)
 open import Cxm.Expectation using (xpSubject; pmSubject)
 open import Cxm.Event using (ExperienceEvent; eeId; eeSubject; eePayload)
 open import Cxm.Identity using (Identity; mkIdentity; iId; iSubject; iChannel; iExternalId; iVerified)
-open import Cxm.Bus using (OutboxEntry; mkOutbox; obId; obBody; obStatus; OutStatus; OutPending; OutSent; Event; evId; evProcessed)
+open import Cxm.Bus using (OutboxEntry; mkOutbox; obId; obBody; obStatus; OutStatus; OutPending; OutSent; OutFailed; Event; evId; evProcessed)
 open import Cxm.Knowledge using (Knowledge; kId; kSubject; kDetail; statedK; mkFact; IState; FObserved; STATE; STATED)
 open import Cxm.Collections using (Evidence; mkEvidence; evdId; evdKnowledge; Transition; mkTransition; trId; trEpisode; dvEpisode; ProtocolTransition; mkProtocolTransition; ptProtocol)
 open import Cxm.Episode using (Episode; mkEpisode; epId; epSubject; epCurrentState)
@@ -754,4 +754,31 @@ _ = refl
 -- audit F2: the login-bound identity is VERIFIED (login proves channel control — original semantics)
 _ : identAt 90 (runTx handlerP (mergeSessionV 2 "email" "login@x" 2 7) stP)
   ≡ just (mkIdentity 90 2 "email" "login@x" true 2 7)
+_ = refl
+
+-- аудит-2 zero-downtime: claimOutboxV — атомарный claim письма (бесшовный reload)
+private
+  claimTwice : Tx (Bool × Bool)
+  claimTwice = claimOutboxV 85 7 8 >>=T λ a → claimOutboxV 85 7 8 >>=T λ b → returnT (a , b)
+  pairOf : Err ⊎ ((Bool × Bool) × PSt) → Maybe (Bool × Bool)
+  pairOf (inj₂ (p , _)) = just p
+  pairOf (inj₁ _)       = nothing
+
+-- первый claim берёт (attempts 0→1, lastAttempt=now), НЕМЕДЛЕННЫЙ повторный отбит backoff'ом
+_ : pairOf (runTx handlerP claimTwice stC) ≡ just (true , false)
+_ = refl
+
+private
+  -- строка с исчерпанными попытками (attempts=8, давно due): claim помечает Failed и НЕ шлёт
+  stO : PSt
+  stO = mkP (override tcOutbox
+              (λ _ → (87 , mkOutbox 87 "email" "c@x" "s" "b" OutPending 2 0 8 (just 0)) ∷ [])
+              (tbls stC)) (pNext stC) []
+  boolOf : Err ⊎ (Bool × PSt) → Maybe Bool
+  boolOf (inj₂ (b , _)) = just b
+  boolOf (inj₁ _)       = nothing
+
+_ : boolOf (runTx handlerP (claimOutboxV 87 99999 8) stO) ≡ just false
+_ = refl
+_ : obStatusAt 87 (runTx handlerP (claimOutboxV 87 99999 8) stO) ≡ just OutFailed
 _ = refl
