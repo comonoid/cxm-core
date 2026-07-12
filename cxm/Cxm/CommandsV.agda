@@ -915,6 +915,9 @@ markSentV oid =
   require tcOutbox oid NotFound >>=T λ o →
   put tcOutbox (record o { obStatus = OutSent })
 
+-- ВНИМАНИЕ (аудит-5): drainOutboxV помечает Sent БЕЗ отправки и БЕЗ claim-гейта — это
+-- ТЕСТОВЫЙ хелпер (VerbsTest); боевой путь доставки — claimOutboxV → send → markSentV.
+-- В HTTP-роуты не выводить.
 drainOutboxV : Tx ℕ
 drainOutboxV =
   byIx tcOutbox outByStatus 0 >>=T λ ids →
